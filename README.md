@@ -34,7 +34,6 @@ You **do not need to install local development dependencies** or set up Flutter 
 
 1. **Android**: Release APK & AAB bundles (`.apk`)
 2. **Windows**: Standalone Windows Executable & Release ZIP (`.exe` / `.zip`)
-3. **Linux**: Linux Application Tarball (`.tar.gz`)
 
 Release build artifacts are automatically attached to every GitHub commit and push!
 
