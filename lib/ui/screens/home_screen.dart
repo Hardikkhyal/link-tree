@@ -97,7 +97,38 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     super.dispose();
   }
 
+  /// Verifies the target device is reachable before starting any transfer.
+  Future<bool> _verifyConnection(DeviceModel target) async {
+    if (!mounted) return false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _ConnectionCheckingDialog(deviceName: target.name),
+    );
+
+    final result = await _transferClient.checkConnection(target);
+
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+    if (result.isReachable) return true;
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (_) => _ConnectionFailedDialog(
+          deviceName: target.name,
+          errorMessage: result.errorMessage ?? 'Device unreachable.',
+        ),
+      );
+    }
+    return false;
+  }
+
   void _sendFilesToDevice(DeviceModel target, List<File> files) async {
+    if (!await _verifyConnection(target)) return;
+    _tabController.animateTo(2); // Switch to Transfers tab
+
     for (var file in files) {
       await _transferClient.sendFile(
         target: target,
@@ -126,7 +157,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  void _showTextShareModal(DeviceModel target) {
+  void _showTextShareModal(DeviceModel target) async {
+    if (!await _verifyConnection(target)) return;
+    if (!mounted) return;
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -366,3 +400,120 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 }
+
+class _ConnectionCheckingDialog extends StatelessWidget {
+  final String deviceName;
+
+  const _ConnectionCheckingDialog({required this.deviceName});
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AppTheme.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(color: AppTheme.primary),
+            const SizedBox(width: 20),
+            Flexible(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Verifying Connection...',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Pinging $deviceName to confirm reachability',
+                    style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConnectionFailedDialog extends StatelessWidget {
+  final String deviceName;
+  final String errorMessage;
+
+  const _ConnectionFailedDialog({
+    required this.deviceName,
+    required this.errorMessage,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: AppTheme.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row(
+        children: [
+          const Icon(Icons.wifi_off_rounded, color: AppTheme.danger, size: 28),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Cannot Connect to $deviceName',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            errorMessage,
+            style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.background,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.primary.withOpacity(0.3)),
+            ),
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '💡 Quick Setup Steps:',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary, fontSize: 13),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  '1. Turn ON Mobile Hotspot on Phone or Laptop.\n'
+                  '2. Connect the other device to that Hotspot / Wi-Fi.\n'
+                  '3. Ensure HK Drop is OPEN on both devices.',
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.primary,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('OK, Got It'),
+        ),
+      ],
+    );
+  }
+}
+

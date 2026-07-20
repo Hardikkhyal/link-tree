@@ -10,6 +10,19 @@ import '../security/device_identity_service.dart';
 import 'models/device_model.dart';
 import 'models/payload_model.dart';
 
+/// Result of a connectivity pre-check
+class ConnectionCheckResult {
+  final bool isReachable;
+  final int latencyMs;
+  final String? errorMessage;
+
+  const ConnectionCheckResult({
+    required this.isReachable,
+    required this.latencyMs,
+    this.errorMessage,
+  });
+}
+
 class TransferClient {
   static final TransferClient _instance = TransferClient._internal();
   factory TransferClient() => _instance;
@@ -21,7 +34,60 @@ class TransferClient {
     sendTimeout: const Duration(minutes: 10),
   ));
 
-  /// Sends instant text payload to target device
+  // ─────────────────────────────────────────────────────
+  // CONNECTION PRE-CHECK
+  // Must be called before any file or text transfer.
+  // ─────────────────────────────────────────────────────
+
+  /// Pings target device to verify it is online and reachable.
+  /// Returns [ConnectionCheckResult] with reachability and latency info.
+  Future<ConnectionCheckResult> checkConnection(DeviceModel target) async {
+    final url = 'http://${target.ipAddress}:${target.port}/api/v1/ping';
+    final stopwatch = Stopwatch()..start();
+
+    try {
+      final response = await Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 4),
+        receiveTimeout: const Duration(seconds: 4),
+      )).get(url);
+
+      stopwatch.stop();
+
+      if (response.statusCode == 200) {
+        return ConnectionCheckResult(
+          isReachable: true,
+          latencyMs: stopwatch.elapsedMilliseconds,
+        );
+      }
+
+      return ConnectionCheckResult(
+        isReachable: false,
+        latencyMs: 0,
+        errorMessage: 'Device returned status ${response.statusCode}',
+      );
+    } on DioException catch (e) {
+      stopwatch.stop();
+      String msg;
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout) {
+        msg = 'Connection timed out. Make sure both devices are on the same Wi-Fi or hotspot.';
+      } else if (e.type == DioExceptionType.connectionError) {
+        msg = 'Cannot reach ${target.name}. Check that hotspot or Wi-Fi is active on both devices.';
+      } else {
+        msg = 'Network error: ${e.message}';
+      }
+      return ConnectionCheckResult(isReachable: false, latencyMs: 0, errorMessage: msg);
+    } catch (e) {
+      return ConnectionCheckResult(isReachable: false, latencyMs: 0, errorMessage: e.toString());
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // TEXT TRANSFER
+  // ─────────────────────────────────────────────────────
+
+  /// Sends instant text payload to target device.
+  /// Always call [checkConnection] before this.
   Future<bool> sendText(DeviceModel target, String text, TextCategory category) async {
     final identity = DeviceIdentityService();
     final url = 'http://${target.ipAddress}:${target.port}/api/v1/text';
@@ -40,14 +106,17 @@ class TransferClient {
         options: Options(headers: {'content-type': 'application/json'}),
       );
       return response.statusCode == 200;
-    } catch (e) {
+    } catch (_) {
       return false;
     }
   }
 
+  // ─────────────────────────────────────────────────────
+  // FILE TRANSFER
+  // ─────────────────────────────────────────────────────
+
   /// Sends file using high-speed streaming chunk transfer with real-time progress.
-  /// FIX: Removed file.readAsBytes() which blocked the UI entirely for large files.
-  /// SHA-256 is now computed incrementally during streaming.
+  /// Always call [checkConnection] before this.
   Future<bool> sendFile({
     required DeviceModel target,
     required File file,
@@ -62,7 +131,7 @@ class TransferClient {
     final totalChunks = (filesize / AppConstants.chunkSize).ceil().clamp(1, 99999);
     final baseUrl = 'http://${target.ipAddress}:${target.port}';
 
-    // Emit initial "starting" progress immediately so UI shows something
+    // Emit "starting" immediately so UI reacts
     onProgress(TransferProgress(
       transferId: transferId,
       filename: filename,
@@ -72,7 +141,7 @@ class TransferClient {
       status: TransferStatus.active,
     ));
 
-    // 1. Init transfer session with placeholder hash (computed after streaming)
+    // Init transfer session
     final initMeta = FileMetadata(
       transferId: transferId,
       filename: filename,
@@ -99,17 +168,16 @@ class TransferClient {
           bytesTransferred: 0,
           speedMBps: 0,
           status: TransferStatus.failed,
-          errorMessage: 'Server rejected transfer init',
+          errorMessage: 'Server rejected the transfer. Is HK Drop open on the other device?',
         ));
         return false;
       }
 
-      // 2. Stream chunks — compute SHA-256 incrementally as we read
+      // Stream chunks
       final randomAccessFile = await file.open(mode: FileMode.read);
       int bytesSent = 0;
       final stopwatch = Stopwatch()..start();
 
-      // Incremental SHA-256 digest
       final sha256Sink = sha256.startChunkedConversion(
         ChunkedConversionSink.withCallback((_) {}),
       );
@@ -117,23 +185,19 @@ class TransferClient {
       for (int i = 0; i < totalChunks; i++) {
         final remaining = filesize - bytesSent;
         final chunkSize = remaining < AppConstants.chunkSize ? remaining : AppConstants.chunkSize;
-
         final chunkData = await randomAccessFile.read(chunkSize);
 
-        // Feed chunk to SHA-256 accumulator
         sha256Sink.add(chunkData);
 
         final chunkResp = await _dio.post(
           '$baseUrl/api/v1/file/chunk',
           data: Stream.fromIterable([Uint8List.fromList(chunkData)]),
-          options: Options(
-            headers: {
-              'content-type': 'application/octet-stream',
-              'content-length': chunkSize.toString(),
-              'x-transfer-id': transferId,
-              'x-chunk-index': i.toString(),
-            },
-          ),
+          options: Options(headers: {
+            'content-type': 'application/octet-stream',
+            'content-length': chunkSize.toString(),
+            'x-transfer-id': transferId,
+            'x-chunk-index': i.toString(),
+          }),
         );
 
         if (chunkResp.statusCode != 200) {
@@ -146,14 +210,13 @@ class TransferClient {
             bytesTransferred: bytesSent,
             speedMBps: 0,
             status: TransferStatus.failed,
-            errorMessage: 'Chunk upload failed at chunk $i of $totalChunks',
+            errorMessage: 'Transfer interrupted at chunk $i/$totalChunks. Check your connection.',
           ));
           return false;
         }
 
         bytesSent += chunkSize;
 
-        // Calculate real-time speed in MB/s
         final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
         final speedMBps = elapsedSec > 0 ? (bytesSent / (1024 * 1024)) / elapsedSec : 0.0;
 
@@ -178,7 +241,7 @@ class TransferClient {
         bytesTransferred: 0,
         speedMBps: 0,
         status: TransferStatus.failed,
-        errorMessage: e.toString(),
+        errorMessage: 'Transfer failed: ${e.toString()}',
       ));
       return false;
     }
