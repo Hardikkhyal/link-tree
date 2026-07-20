@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
@@ -17,7 +18,7 @@ class PlatformService with TrayListener {
     // 1. Desktop Window Manager
     if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
       await windowManager.ensureInitialized();
-      final windowOptions = const WindowOptions(
+      const windowOptions = WindowOptions(
         size: Size(1100, 750),
         minimumSize: Size(850, 600),
         center: true,
@@ -38,9 +39,15 @@ class PlatformService with TrayListener {
         );
         final Menu menu = Menu(
           items: [
-            MenuItem(id: 'show_window', label: 'Open HK Drop'),
+            MenuItem(
+              key: 'show_window',
+              label: 'Open HK Drop',
+            ),
             MenuItem.separator(),
-            MenuItem(id: 'exit_app', label: 'Quit'),
+            MenuItem(
+              key: 'exit_app',
+              label: 'Quit',
+            ),
           ],
         );
         await trayManager.setContextMenu(menu);
@@ -50,7 +57,6 @@ class PlatformService with TrayListener {
 
     // 2. Android Share Sheet Intent Receiver
     if (!kIsWeb && Platform.isAndroid) {
-      // For sharing images, videos, text, files while app is running in background or closed
       ReceiveSharingIntent.instance.getMediaStream().listen((List<SharedMediaFile> value) {
         if (value.isNotEmpty) {
           _sharedFilesController.add(value);
@@ -67,10 +73,10 @@ class PlatformService with TrayListener {
 
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
-    if (menuItem.id == 'show_window') {
+    if (menuItem.key == 'show_window') {
       windowManager.show();
       windowManager.focus();
-    } else if (menuItem.id == 'exit_app') {
+    } else if (menuItem.key == 'exit_app') {
       exit(0);
     }
   }

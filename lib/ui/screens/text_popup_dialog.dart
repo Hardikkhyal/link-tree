@@ -24,7 +24,7 @@ class TextPopupDialog extends StatelessWidget {
           width: 420,
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Header
               Row(
@@ -45,7 +45,7 @@ class TextPopupDialog extends StatelessWidget {
                       ),
                       const SizedBox(width: 12),
                       Column(
-                        crossAxisAlignment: CrossAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
                             'Text Received',
@@ -67,20 +67,22 @@ class TextPopupDialog extends StatelessWidget {
               ),
               const SizedBox(height: 16),
 
-              // Content Box
-              Container(
-                width: double.infinity,
-                maxHeight: 180,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.black45,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white10),
-                ),
-                child: SingleChildScrollView(
-                  child: SelectableText(
-                    payload.text,
-                    style: const TextStyle(fontSize: 14, fontFamily: 'monospace'),
+              // Content Box — use ConstrainedBox for max height constraint
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 180),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.black45,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: SingleChildScrollView(
+                    child: SelectableText(
+                      payload.text,
+                      style: const TextStyle(fontSize: 14, fontFamily: 'monospace'),
+                    ),
                   ),
                 ),
               ),

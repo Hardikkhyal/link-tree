@@ -49,7 +49,7 @@ class DeviceCard extends StatelessWidget {
           // Device Details
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [

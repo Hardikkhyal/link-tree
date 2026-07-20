@@ -88,7 +88,8 @@ class DiscoveryService {
     _discovery!.eventStream?.listen((event) {
       if (event.service == null) return;
       final service = event.service!;
-      final attrs = service.attributes;
+      // Safely access attributes — they are nullable in bonsoir 2.x
+      final attrs = service.attributes ?? <String, String>{};
 
       final id = attrs['id'] ?? service.name;
       final identity = DeviceIdentityService();
@@ -96,11 +97,17 @@ class DiscoveryService {
 
       if (event.type == BonsoirDiscoveryEventType.discoveryServiceFound ||
           event.type == BonsoirDiscoveryEventType.discoveryServiceResolved) {
+        // Get IP from attributes first, then try resolved service ip field
+        String ipAddress = attrs['ip'] ?? '';
+        if (ipAddress.isEmpty && service is ResolvedBonsoirService) {
+          ipAddress = service.ip ?? '';
+        }
+
         final device = DeviceModel(
           id: id,
           name: attrs['name'] ?? 'HK Drop Device',
           platform: attrs['platform'] ?? 'unknown',
-          ipAddress: attrs['ip'] ?? (service as ResolvedBonsoirService).host ?? '',
+          ipAddress: ipAddress,
           port: AppConstants.defaultPort,
           publicKey: attrs['pubKey'] ?? '',
           isPaired: TrustStore().isDeviceTrusted(id),
@@ -118,11 +125,11 @@ class DiscoveryService {
     await _discovery!.start();
     _isDiscovering = true;
 
-    // Trigger local subnet ping scan fallback for instant offline connection
+    // Trigger local subnet ping scan fallback
     _scanSubnetFallback();
   }
 
-  /// Fast local ping scan fallback in case mDNS broadcast is blocked by router
+  /// Fast local ping scan fallback in case mDNS is blocked by router
   Future<void> _scanSubnetFallback() async {
     final localIp = await getLocalIpAddress();
     if (localIp == null) return;
@@ -131,26 +138,21 @@ class DiscoveryService {
     if (parts.length != 4) return;
     final subnet = '${parts[0]}.${parts[1]}.${parts[2]}';
 
-    final identity = DeviceIdentityService();
-
-    // Ping potential subnet IP range
     for (int i = 1; i <= 254; i++) {
       final targetIp = '$subnet.$i';
       if (targetIp == localIp) continue;
-
-      _checkDevicePing(targetIp, identity);
+      _checkDevicePing(targetIp);
     }
   }
 
-  Future<void> _checkDevicePing(String targetIp, DeviceIdentityService identity) async {
+  Future<void> _checkDevicePing(String targetIp) async {
     try {
       final client = HttpClient();
       client.connectionTimeout = const Duration(milliseconds: 300);
       final req = await client.get(targetIp, AppConstants.defaultPort, '/api/v1/ping');
       final resp = await req.close();
       if (resp.statusCode == 200) {
-        final body = await resp.transform(const SystemEncoding().decoder).join();
-        // Parse ping payload and add device if valid
+        // Could parse ping response here
       }
     } catch (_) {}
   }
