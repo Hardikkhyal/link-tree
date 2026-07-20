@@ -13,6 +13,27 @@ subprojects {
     project.evaluationDependsOn(':app')
 }
 
+// Force all plugins (bonsoir, etc.) to use the same Java 17 JVM target
+// so compileReleaseJavaWithJavac and compileReleaseKotlin targets match
+subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            project.android {
+                compileOptions {
+                    sourceCompatibility JavaVersion.VERSION_17
+                    targetCompatibility JavaVersion.VERSION_17
+                }
+            }
+        }
+        // Force Kotlin JVM target for all subprojects
+        project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+            kotlinOptions {
+                jvmTarget = '17'
+            }
+        }
+    }
+}
+
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }
