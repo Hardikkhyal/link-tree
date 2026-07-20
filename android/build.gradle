@@ -13,23 +13,31 @@ subprojects {
     project.evaluationDependsOn(':app')
 }
 
-// Force all plugins (bonsoir, etc.) to use the same Java 17 JVM target
-// so compileReleaseJavaWithJavac and compileReleaseKotlin targets match
+// Align Java and Kotlin JVM targets across ALL plugin subprojects.
+// Using plugins.withId + configureEach (lazy) avoids the
+// "Cannot run afterEvaluate when project is already evaluated" error.
 subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty('android')) {
-            project.android {
-                compileOptions {
-                    sourceCompatibility JavaVersion.VERSION_17
-                    targetCompatibility JavaVersion.VERSION_17
-                }
+    plugins.withId("com.android.library") {
+        android {
+            compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
             }
         }
-        // Force Kotlin JVM target for all subprojects
-        project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-            kotlinOptions {
-                jvmTarget = '17'
+    }
+
+    plugins.withId("com.android.application") {
+        android {
+            compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
             }
+        }
+    }
+
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions {
+            jvmTarget = '17'
         }
     }
 }
