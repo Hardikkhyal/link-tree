@@ -32,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final TrustStore _trustStore = TrustStore();
 
   List<DeviceModel> _discoveredDevices = [];
+  List<DeviceModel> _pairedDevices = []; // FIX: stored as state so it persists across rebuilds
   final List<TransferProgress> _activeProgressList = [];
   String _localIp = '127.0.0.1';
 
@@ -79,6 +80,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     await _discoveryService.startBroadcasting();
     await _discoveryService.startDiscovery();
+
+    // FIX: Force rebuild after all async init completes so paired devices
+    // loaded from secure storage are reflected in the UI immediately.
+    if (mounted) {
+      setState(() {
+        _pairedDevices = _trustStore.pairedDevices;
+      });
+    }
   }
 
   @override
@@ -162,13 +171,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     final identity = DeviceIdentityService();
-    final pairedDevices = _trustStore.pairedDevices;
 
     return Scaffold(
       body: DesktopDropZone(
         onFilesDropped: (files) {
-          if (pairedDevices.isNotEmpty) {
-            _sendFilesToDevice(pairedDevices.first, files);
+          if (_pairedDevices.isNotEmpty) {
+            _sendFilesToDevice(_pairedDevices.first, files);
           } else if (_discoveredDevices.isNotEmpty) {
             _sendFilesToDevice(_discoveredDevices.first, files);
           } else {
@@ -212,7 +220,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ),
                     onPressed: () async {
                       await showDialog(context: context, builder: (_) => const PairingScreen());
-                      setState(() {});
+                      // FIX: Refresh paired devices list after pairing dialog closes
+                      if (mounted) setState(() => _pairedDevices = _trustStore.pairedDevices);
                     },
                     icon: const Icon(Icons.qr_code_rounded, size: 20),
                     label: const Text('Pair Device'),
@@ -264,7 +273,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   // Tab 2: Paired Devices List
                   ListView(
                     padding: const EdgeInsets.all(24),
-                    children: pairedDevices.isEmpty
+                    children: _pairedDevices.isEmpty
                         ? [
                             const Center(
                               child: Padding(
@@ -277,14 +286,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                               ),
                             ),
                           ]
-                        : pairedDevices.map((d) {
+                        : _pairedDevices.map((d) {
                             return DeviceCard(
                               device: d,
                               onSendFile: () => _pickAndSendFiles(d),
                               onSendText: () => _showTextShareModal(d),
                               onUnpair: () async {
                                 await _trustStore.unpairDevice(d.id);
-                                setState(() {});
+                                // FIX: refresh state after unpair
+                                if (mounted) setState(() => _pairedDevices = _trustStore.pairedDevices);
                               },
                             );
                           }).toList(),

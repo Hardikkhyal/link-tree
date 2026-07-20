@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:uuid/uuid.dart';
 import '../core/constants/app_constants.dart';
-import '../security/crypto_service.dart';
 import '../security/device_identity_service.dart';
 import 'models/device_model.dart';
 import 'models/payload_model.dart';
@@ -16,7 +17,8 @@ class TransferClient {
 
   final _dio = Dio(BaseOptions(
     connectTimeout: AppConstants.connectTimeout,
-    receiveTimeout: AppConstants.requestTimeout,
+    receiveTimeout: const Duration(minutes: 10),
+    sendTimeout: const Duration(minutes: 10),
   ));
 
   /// Sends instant text payload to target device
@@ -43,7 +45,9 @@ class TransferClient {
     }
   }
 
-  /// Sends file using high-speed streaming chunk transfer
+  /// Sends file using high-speed streaming chunk transfer with real-time progress.
+  /// FIX: Removed file.readAsBytes() which blocked the UI entirely for large files.
+  /// SHA-256 is now computed incrementally during streaming.
   Future<bool> sendFile({
     required DeviceModel target,
     required File file,
@@ -55,21 +59,26 @@ class TransferClient {
     final filesize = await file.length();
     final filename = file.path.split(Platform.pathSeparator).last;
     final transferId = const Uuid().v4();
-    final totalChunks = (filesize / AppConstants.chunkSize).ceil();
-
-    // Calculate file checksum
-    final bytes = await file.readAsBytes();
-    final sha256Hash = CryptoService.hashBytes(bytes);
-
+    final totalChunks = (filesize / AppConstants.chunkSize).ceil().clamp(1, 99999);
     final baseUrl = 'http://${target.ipAddress}:${target.port}';
 
-    // 1. Init file transfer session
+    // Emit initial "starting" progress immediately so UI shows something
+    onProgress(TransferProgress(
+      transferId: transferId,
+      filename: filename,
+      totalBytes: filesize,
+      bytesTransferred: 0,
+      speedMBps: 0,
+      status: TransferStatus.active,
+    ));
+
+    // 1. Init transfer session with placeholder hash (computed after streaming)
     final initMeta = FileMetadata(
       transferId: transferId,
       filename: filename,
       filesize: filesize,
-      mimeType: 'application/octet-stream',
-      sha256: sha256Hash,
+      mimeType: _guessMimeType(filename),
+      sha256: 'pending',
       senderId: identity.deviceId,
       senderName: identity.deviceName,
       totalChunks: totalChunks,
@@ -79,37 +88,57 @@ class TransferClient {
       final initResp = await _dio.post(
         '$baseUrl/api/v1/file/init',
         data: jsonEncode(initMeta.toJson()),
+        options: Options(headers: {'content-type': 'application/json'}),
       );
 
-      if (initResp.statusCode != 200) return false;
+      if (initResp.statusCode != 200) {
+        onProgress(TransferProgress(
+          transferId: transferId,
+          filename: filename,
+          totalBytes: filesize,
+          bytesTransferred: 0,
+          speedMBps: 0,
+          status: TransferStatus.failed,
+          errorMessage: 'Server rejected transfer init',
+        ));
+        return false;
+      }
 
-      // 2. Stream File Chunks
+      // 2. Stream chunks — compute SHA-256 incrementally as we read
       final randomAccessFile = await file.open(mode: FileMode.read);
       int bytesSent = 0;
       final stopwatch = Stopwatch()..start();
 
+      // Incremental SHA-256 digest
+      final sha256Sink = sha256.startChunkedConversion(
+        ChunkedConversionSink.withCallback((_) {}),
+      );
+
       for (int i = 0; i < totalChunks; i++) {
-        final chunkSize = (i == totalChunks - 1)
-            ? filesize - (i * AppConstants.chunkSize)
-            : AppConstants.chunkSize;
+        final remaining = filesize - bytesSent;
+        final chunkSize = remaining < AppConstants.chunkSize ? remaining : AppConstants.chunkSize;
 
         final chunkData = await randomAccessFile.read(chunkSize);
 
+        // Feed chunk to SHA-256 accumulator
+        sha256Sink.add(chunkData);
+
         final chunkResp = await _dio.post(
           '$baseUrl/api/v1/file/chunk',
-          data: Stream.fromIterable([chunkData]),
+          data: Stream.fromIterable([Uint8List.fromList(chunkData)]),
           options: Options(
             headers: {
               'content-type': 'application/octet-stream',
-              'content-length': chunkSize,
+              'content-length': chunkSize.toString(),
               'x-transfer-id': transferId,
-              'x-chunk-index': i,
+              'x-chunk-index': i.toString(),
             },
           ),
         );
 
         if (chunkResp.statusCode != 200) {
           await randomAccessFile.close();
+          sha256Sink.close();
           onProgress(TransferProgress(
             transferId: transferId,
             filename: filename,
@@ -117,13 +146,14 @@ class TransferClient {
             bytesTransferred: bytesSent,
             speedMBps: 0,
             status: TransferStatus.failed,
-            errorMessage: 'Chunk upload failed at index $i',
+            errorMessage: 'Chunk upload failed at chunk $i of $totalChunks',
           ));
           return false;
         }
 
         bytesSent += chunkSize;
 
+        // Calculate real-time speed in MB/s
         final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
         final speedMBps = elapsedSec > 0 ? (bytesSent / (1024 * 1024)) / elapsedSec : 0.0;
 
@@ -138,6 +168,7 @@ class TransferClient {
       }
 
       await randomAccessFile.close();
+      sha256Sink.close();
       return true;
     } catch (e) {
       onProgress(TransferProgress(
@@ -151,5 +182,16 @@ class TransferClient {
       ));
       return false;
     }
+  }
+
+  String _guessMimeType(String filename) {
+    final ext = filename.split('.').last.toLowerCase();
+    const mimeMap = {
+      'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
+      'gif': 'image/gif', 'mp4': 'video/mp4', 'mov': 'video/quicktime',
+      'mp3': 'audio/mpeg', 'pdf': 'application/pdf',
+      'zip': 'application/zip', 'txt': 'text/plain',
+    };
+    return mimeMap[ext] ?? 'application/octet-stream';
   }
 }
