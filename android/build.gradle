@@ -13,35 +13,6 @@ subprojects {
     project.evaluationDependsOn(':app')
 }
 
-// Align Java and Kotlin JVM targets across ALL plugin subprojects.
-// Using plugins.withId + configureEach (lazy) avoids the
-// "Cannot run afterEvaluate when project is already evaluated" error.
-subprojects {
-    plugins.withId("com.android.library") {
-        android {
-            compileOptions {
-                sourceCompatibility JavaVersion.VERSION_17
-                targetCompatibility JavaVersion.VERSION_17
-            }
-        }
-    }
-
-    plugins.withId("com.android.application") {
-        android {
-            compileOptions {
-                sourceCompatibility JavaVersion.VERSION_17
-                targetCompatibility JavaVersion.VERSION_17
-            }
-        }
-    }
-
-    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-        kotlinOptions {
-            jvmTarget = '17'
-        }
-    }
-}
-
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }
