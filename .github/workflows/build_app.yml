@@ -1,0 +1,121 @@
+name: HK Drop CI/CD - Automated Multi-Platform Release Builds
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  # ----------------------------------------------------
+  # 1. Android Release Build (APK & AAB)
+  # ----------------------------------------------------
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java Development Kit (JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Run Tests & Verification
+        run: flutter test
+
+      - name: Build Android APK (Release)
+        run: flutter build apk --release --split-per-abi
+
+      - name: Upload APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hk-drop-android-apk
+          path: build/app/outputs/flutter-apk/*.apk
+          retention-days: 30
+
+  # ----------------------------------------------------
+  # 2. Windows Desktop Release Build (.EXE / ZIP)
+  # ----------------------------------------------------
+  build-windows:
+    name: Build Windows Desktop App
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build Windows Executable (Release)
+        run: flutter build windows --release
+
+      - name: Compress Windows Build Folder
+        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\hk-drop-windows-x64.zip
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hk-drop-windows-x64
+          path: build/hk-drop-windows-x64.zip
+          retention-days: 30
+
+  # ----------------------------------------------------
+  # 3. Linux Desktop Release Build
+  # ----------------------------------------------------
+  build-linux:
+    name: Build Linux Desktop App
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Linux Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libkeybinder-3.0-dev
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build Linux App (Release)
+        run: flutter build linux --release
+
+      - name: Compress Linux Build
+        run: |
+          cd build/linux/x64/release/bundle
+          tar -czvf ../../../../../hk-drop-linux-x64.tar.gz .
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hk-drop-linux-x64
+          path: hk-drop-linux-x64.tar.gz
+          retention-days: 30

@@ -1,0 +1,14 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    missing_required_param: error
+    missing_return: error
+    todo: ignore
+
+linter:
+  rules:
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    avoid_print: false # Allow structured logging print statements
+    use_build_context_synchronously: false
