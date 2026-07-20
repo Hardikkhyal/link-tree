@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:dio/dio me.dart' as dio_pkg;
 import 'package:dio/dio.dart';
 import 'package:uuid/uuid.dart';
 import '../core/constants/app_constants.dart';
