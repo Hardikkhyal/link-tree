@@ -27,74 +27,54 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Verify Toolchain Environment
+        run: |
+          flutter --version
+          dart --version
+          flutter doctor -v
+
       - name: Enable Windows Desktop Support
         run: flutter config --enable-windows-desktop
 
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Validate and ensure Windows app icon exists
+      - name: Download Windows Engine Artifacts
+        run: flutter precache --windows
+
+      - name: Validate Required Windows Files
         shell: pwsh
         run: |
-          $iconPath = "windows/runner/resources/app_icon.ico"
-          if (-not (Test-Path $iconPath)) {
-            Write-Host "Creating missing $iconPath..."
-            New-Item -ItemType Directory -Force -Path "windows/runner/resources" | Out-Null
-            [System.IO.File]::WriteAllBytes($iconPath, [System.Convert]::FromBase64String('AAABAAEAICAQAAAAAADoAgAAFgAAACgAAAAgAAAAQAAAAAEABAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAEBAQAEBAMABgYABgYEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA'))
-          }
-
-      - name: Copy Flutter engine artifacts from SDK cache into ephemeral
-        shell: pwsh
-        run: |
-          $sdkRoot = $env:FLUTTER_ROOT
-          Write-Host "Flutter SDK: $sdkRoot"
-
-          $engineCacheDir = "$sdkRoot\bin\cache\artifacts\engine\windows-x64"
-          $ephemeralDir   = "windows\flutter\ephemeral"
-          $wrapperDst     = "$ephemeralDir\cpp_client_wrapper"
-
-          Write-Host "Engine cache dir: $engineCacheDir"
-
-          if (-not (Test-Path $engineCacheDir)) {
-            Write-Host "Engine cache not found, running flutter precache..."
-            flutter precache --windows
-          }
-
-          Write-Host "Contents of engine cache:"
-          Get-ChildItem $engineCacheDir | Select-Object Name, Length
-
-          # Create ephemeral dir
-          New-Item -ItemType Directory -Force -Path $ephemeralDir | Out-Null
-          New-Item -ItemType Directory -Force -Path $wrapperDst   | Out-Null
-
-          # Copy ALL engine artifacts: .dll, .dll.lib, .dll.exp, .h, .dat, .lib
-          Get-ChildItem $engineCacheDir -File | ForEach-Object {
-            Copy-Item $_.FullName -Destination $ephemeralDir -Force
-            Write-Host "Copied: $($_.Name)"
-          }
-
-          # Copy cpp_client_wrapper (sources + include/ headers)
-          $wrapperSrc = "$engineCacheDir\cpp_client_wrapper"
-          if (Test-Path $wrapperSrc) {
-            Copy-Item "$wrapperSrc\*" -Destination $wrapperDst -Recurse -Force
-            Write-Host "Copied cpp_client_wrapper from: $wrapperSrc"
-          } else {
-            # Fallback: search anywhere in Flutter SDK cache
-            $alt = Get-ChildItem "$sdkRoot\bin\cache" -Recurse -Filter "core_implementations.cc" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($alt) {
-              Write-Host "Found wrapper at: $($alt.DirectoryName)"
-              Copy-Item "$($alt.DirectoryName)\*" -Destination $wrapperDst -Recurse -Force
-            } else {
-              Write-Host "ERROR: cpp_client_wrapper not found in SDK cache"
+          $requiredFiles = @(
+            "windows/CMakeLists.txt",
+            "windows/runner/CMakeLists.txt",
+            "windows/runner/main.cpp"
+          )
+          foreach ($file in $requiredFiles) {
+            if (-not (Test-Path $file)) {
+              Write-Error "CRITICAL MISSING FILE: $file"
               exit 1
             }
           }
 
-          Write-Host "\nFinal ephemeral contents:"
-          Get-ChildItem $ephemeralDir -Recurse | Select-Object FullName
+          $iconPath = "windows/runner/resources/app_icon.ico"
+          if (-not (Test-Path $iconPath)) {
+            Write-Host "Creating missing app_icon.ico fallback resource..."
+            New-Item -ItemType Directory -Force -Path "windows/runner/resources" | Out-Null
+            [System.IO.File]::WriteAllBytes($iconPath, [System.Convert]::FromBase64String('AAABAAEAICAQAAAAAADoAgAAFgAAACgAAAAgAAAAQAAAAAEABAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAEBAQAEBAMABgYABgYEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA'))
+          }
 
       - name: Build Windows Executable (Release)
-        run: flutter build windows --release
+        run: flutter build windows --release -v
+
+      - name: Validate Build Output Exists
+        shell: pwsh
+        run: |
+          $releaseDir = "build/windows/x64/runner/Release"
+          if (-not (Test-Path $releaseDir)) {
+            Write-Error "Release build output directory does not exist: $releaseDir"
+            exit 1
+          }
 
       - name: Compress Windows Build Folder
         run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\hk-drop-windows-x64.zip
