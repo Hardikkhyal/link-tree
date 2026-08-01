@@ -11,11 +11,9 @@ jobs:
   build-windows:
     name: Build Windows Desktop App
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     env:
-      CMAKE_GENERATOR: "Visual Studio 17 2022"
-      CMAKE_GENERATOR_PLATFORM: x64
       FLUTTER_STORAGE_BASE_URL: https://storage.googleapis.com
 
     steps:
@@ -29,22 +27,14 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Verify toolchain
-        run: |
-          flutter --version
-          flutter doctor -v
-
       - name: Enable Windows Desktop Support
         run: flutter config --enable-windows-desktop
-
-      - name: Precache Windows artifacts
-        run: flutter precache --windows
 
       - name: Install Dependencies
         run: flutter pub get
 
       - name: Build Windows Executable (Release)
-        run: flutter build windows --release -v
+        run: flutter build windows --release
 
       - name: Compress Windows Build Folder
         run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\hk-drop-windows-x64.zip
