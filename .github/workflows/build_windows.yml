@@ -142,14 +142,37 @@ jobs:
       - name: Validate Build Output Exists
         shell: pwsh
         run: |
-          $releaseDir = "build/windows/x64/runner/Release"
+          $buildConfig = "Release"
+          $releaseDir  = "build/windows/x64/runner/$buildConfig"
+          $exePath     = "$releaseDir/runner.exe"
+          $altExePath  = "$releaseDir/hk_drop.exe"
+
+          Write-Host "Checking release directory: $releaseDir"
           if (-not (Test-Path $releaseDir)) {
-            Write-Error "Release build output directory does not exist: $releaseDir"
+            Write-Error "CRITICAL: Release build output directory missing: $releaseDir"
+            if (Test-Path "build/windows") { Get-ChildItem "build/windows" -Recurse }
+            exit 1
+          }
+
+          Write-Host "Release directory contents:"
+          Get-ChildItem $releaseDir | Select-Object Name, Length
+
+          if (-not (Test-Path $exePath) -and -not (Test-Path $altExePath)) {
+            Write-Error "CRITICAL: Executable missing from release output directory!"
             exit 1
           }
 
       - name: Compress Windows Build Folder
-        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\hk-drop-windows-x64.zip
+        shell: pwsh
+        run: |
+          $releaseDir = "build/windows/x64/runner/Release"
+          $zipPath    = "build/hk-drop-windows-x64.zip"
+          if (-not (Test-Path $releaseDir)) {
+            Write-Error "Cannot compress - missing release directory: $releaseDir"
+            exit 1
+          }
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath $zipPath -Force
+          Write-Host "Compressed release bundle to $zipPath"
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
