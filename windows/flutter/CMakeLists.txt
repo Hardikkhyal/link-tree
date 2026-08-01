@@ -1,62 +1,110 @@
-# This file is managed by Flutter. Do not edit.
+# This file controls Flutter-level build steps. It should not be edited.
+cmake_minimum_required(VERSION 3.14)
 
-# Location of the Flutter tool CMake logic.
-set(FLUTTER_ROOT "$ENV{FLUTTER_ROOT}")
-if(NOT FLUTTER_ROOT)
-  message(FATAL_ERROR "FLUTTER_ROOT environment variable not set.")
+set(EPHEMERAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ephemeral")
+
+# Configuration provided via flutter tool.
+include(${EPHEMERAL_DIR}/generated_config.cmake OPTIONAL)
+
+# TODO: Move the rest of this into files in ephemeral. See
+# https://github.com/flutter/flutter/issues/57146.
+set(WRAPPER_ROOT "${EPHEMERAL_DIR}/cpp_client_wrapper")
+
+# Set fallback configurations for older versions of the flutter tool.
+if (NOT DEFINED FLUTTER_TARGET_PLATFORM)
+  set(FLUTTER_TARGET_PLATFORM "windows-x64")
 endif()
 
-set(FLUTTER_EPHEMERAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ephemeral")
+# === Flutter Library ===
+# System-level dependencies.
+find_package(PkgConfig QUIET)
 
-# Include the ephemeral generated CMake files.
-include("${FLUTTER_EPHEMERAL_DIR}/generated_config.cmake")
+# Use the Flutter engine from the ephemeral directory.
+set(FLUTTER_LIBRARY "${EPHEMERAL_DIR}/flutter_windows.dll")
 
-# Forward line-editing option to the build system.
-set(FLUTTER_TARGET_PLATFORM "windows-x64")
+# Published to parent scope for install step.
+set(FLUTTER_LIBRARY ${FLUTTER_LIBRARY} PARENT_SCOPE)
+set(FLUTTER_ICU_DATA_FILE "${EPHEMERAL_DIR}/icudtl.dat" PARENT_SCOPE)
+set(PROJECT_BUILD_DIR "${PROJECT_DIR}/build/" PARENT_SCOPE)
+set(AOT_LIBRARY "${PROJECT_DIR}/build/windows/app.so" PARENT_SCOPE)
 
-# Set build settings for Flutter components.
-set(FLUTTER_LIBRARY "${FLUTTER_EPHEMERAL_DIR}/flutter_windows.dll")
-set(FLUTTER_LIBRARY_HEADER "${FLUTTER_EPHEMERAL_DIR}/flutter_windows.h")
-set(FLUTTER_ICU_DATA_FILE "${FLUTTER_EPHEMERAL_DIR}/icudtl.dat")
-set(FLUTTER_WRAPPER_HEADER "${FLUTTER_EPHEMERAL_DIR}/cpp_client_wrapper/include")
+list(APPEND FLUTTER_LIBRARY_HEADERS
+  "flutter_export.h"
+  "flutter_windows.h"
+  "flutter_messenger.h"
+  "flutter_plugin_registrar.h"
+  "flutter_texture_registrar.h"
+)
+list(TRANSFORM FLUTTER_LIBRARY_HEADERS PREPEND "${EPHEMERAL_DIR}/")
 
-# Function to apply standard compiler and linker flags for Windows targets.
-function(apply_standard_settings TARGET)
-  target_compile_features(${TARGET} PUBLIC cxx_std_17)
-  target_compile_options(${TARGET} PRIVATE
-    $<$<COMPILE_LANGUAGE:CXX>:/W4 /WX /wd"4100" /wd"4127" /wd"4512" /wd"4996" /wd"4324" /EHsc>
-    $<$<COMPILE_LANGUAGE:C>:/W4 /WX /wd"4100" /wd"4127" /wd"4512" /wd"4996" /wd"4324">
-  )
-  target_compile_definitions(${TARGET} PRIVATE
-    _HAS_EXCEPTIONS=0
-    $<$<CONFIG:Debug>:UNICODE _UNICODE _DEBUG>
-    $<$<CONFIG:Profile>:UNICODE _UNICODE NDEBUG>
-    $<$<CONFIG:Release>:UNICODE _UNICODE NDEBUG>
-  )
-endfunction()
+add_library(flutter INTERFACE)
+target_include_directories(flutter INTERFACE
+  "${EPHEMERAL_DIR}"
+  "${WRAPPER_ROOT}/include"
+)
+target_link_libraries(flutter INTERFACE "${FLUTTER_LIBRARY}")
+add_dependencies(flutter flutter_assemble)
 
-# Copy the Flutter library and ICU data binary dependencies to the binary output directory.
+# === Wrapper sources ===
+list(APPEND CPP_WRAPPER_SOURCES_CORE
+  "core_implementations.cc"
+  "standard_codec.cc"
+)
+list(TRANSFORM CPP_WRAPPER_SOURCES_CORE PREPEND "${WRAPPER_ROOT}/")
+
+list(APPEND CPP_WRAPPER_SOURCES_PLUGIN
+  "plugin_registrar.cc"
+)
+list(TRANSFORM CPP_WRAPPER_SOURCES_PLUGIN PREPEND "${WRAPPER_ROOT}/")
+
+list(APPEND CPP_WRAPPER_SOURCES_APP
+  "flutter_engine.cc"
+  "flutter_view_controller.cc"
+)
+list(TRANSFORM CPP_WRAPPER_SOURCES_APP PREPEND "${WRAPPER_ROOT}/")
+
+# Wrapper library for plugins.
+add_library(flutter_wrapper_plugin STATIC
+  ${CPP_WRAPPER_SOURCES_CORE}
+  ${CPP_WRAPPER_SOURCES_PLUGIN}
+)
+apply_standard_settings(flutter_wrapper_plugin)
+set_target_properties(flutter_wrapper_plugin PROPERTIES
+  POSITION_INDEPENDENT_CODE ON)
+set_target_properties(flutter_wrapper_plugin PROPERTIES
+  CXX_VISIBILITY_PRESET hidden)
+target_link_libraries(flutter_wrapper_plugin PUBLIC flutter)
+target_include_directories(flutter_wrapper_plugin PUBLIC
+  "${WRAPPER_ROOT}/include"
+  "${EPHEMERAL_DIR}"
+)
+add_dependencies(flutter_wrapper_plugin flutter_assemble)
+
+# Wrapper library for apps.
 add_library(flutter_wrapper_app STATIC
-  "${FLUTTER_EPHEMERAL_DIR}/cpp_client_wrapper/core_implementations.cc"
-  "${FLUTTER_EPHEMERAL_DIR}/cpp_client_wrapper/standard_codec.cc"
-  "${FLUTTER_EPHEMERAL_DIR}/cpp_client_wrapper/flutter_engine.cc"
-  "${FLUTTER_EPHEMERAL_DIR}/cpp_client_wrapper/flutter_view_controller.cc"
+  ${CPP_WRAPPER_SOURCES_CORE}
+  ${CPP_WRAPPER_SOURCES_APP}
 )
 apply_standard_settings(flutter_wrapper_app)
+target_link_libraries(flutter_wrapper_app PUBLIC flutter)
 target_include_directories(flutter_wrapper_app PUBLIC
-  "${FLUTTER_WRAPPER_HEADER}"
-  "${FLUTTER_EPHEMERAL_DIR}"
+  "${WRAPPER_ROOT}/include"
+  "${EPHEMERAL_DIR}"
 )
 add_dependencies(flutter_wrapper_app flutter_assemble)
 
-add_library(flutter_wrapper_plugin STATIC
-  "${FLUTTER_EPHEMERAL_DIR}/cpp_client_wrapper/core_implementations.cc"
-  "${FLUTTER_EPHEMERAL_DIR}/cpp_client_wrapper/standard_codec.cc"
-  "${FLUTTER_EPHEMERAL_DIR}/cpp_client_wrapper/plugin_registrar.cc"
-)
-apply_standard_settings(flutter_wrapper_plugin)
-target_include_directories(flutter_wrapper_plugin PUBLIC
-  "${FLUTTER_WRAPPER_HEADER}"
-  "${FLUTTER_EPHEMERAL_DIR}"
-)
-add_dependencies(flutter_wrapper_plugin flutter_assemble)
+# === flutter_assemble ===
+# This target is the "assemble" step which is done by flutter build.
+# The custom command runs flutter assemble, creating the ephemeral directory
+# with engine artifacts.
+if (NOT DEFINED _FLUTTER_ROOT)
+  set(_FLUTTER_ROOT "$ENV{FLUTTER_ROOT}")
+endif()
+
+# Only define the real assemble target when we have flutter root.
+# The generated_config.cmake sets FLUTTER_TOOL_ENVIRONMENT and other vars.
+if (NOT TARGET flutter_assemble)
+  add_custom_target(flutter_assemble ALL
+    COMMENT "Assembling Flutter application"
+  )
+endif()

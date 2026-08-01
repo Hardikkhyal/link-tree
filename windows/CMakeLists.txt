@@ -1,16 +1,16 @@
-# CMake project that configures files declared in cmake_modules.
-
+# Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
 project(hk_drop LANGUAGES CXX)
 
-# Set global configurations.
+# The name of the executable created for the application. Change this to change
+# the on-disk name of your application.
 set(BINARY_NAME "hk_drop")
 
+# Explicitly opt into modern CMake behaviors to avoid warnings with recent
+# versions of CMake.
 cmake_policy(SET CMP0063 NEW)
 
-set(CMAKE_INSTALL_RPATH "$ORIGIN/lib")
-
-# Configure build options.
+# Define build configuration options.
 get_property(IS_MULTICONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 if(IS_MULTICONFIG)
   set(CMAKE_CONFIGURATION_TYPES "Debug;Profile;Release"
@@ -27,21 +27,35 @@ else()
     "Debug" "Profile" "Release")
 endif()
 
-# Define the application target.
-set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
+# Define the standard compiler/linker settings function used by flutter subdir.
+function(apply_standard_settings TARGET)
+  target_compile_features(${TARGET} PUBLIC cxx_std_17)
+  target_compile_options(${TARGET} PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:/W4 /WX /wd"4100" /wd"4127" /wd"4512" /wd"4996" /wd"4324" /EHsc>
+    $<$<COMPILE_LANGUAGE:C>:/W4 /WX /wd"4100" /wd"4127" /wd"4512" /wd"4996" /wd"4324">
+  )
+  target_compile_definitions(${TARGET} PRIVATE
+    _HAS_EXCEPTIONS=0
+    $<$<CONFIG:Debug>:UNICODE _UNICODE _DEBUG>
+    $<$<CONFIG:Profile>:UNICODE _UNICODE NDEBUG>
+    $<$<CONFIG:Release>:UNICODE _UNICODE NDEBUG>
+  )
+endfunction()
 
-# Explicitly add the Flutter managed directory, which defines rules including
-# flutter_assemble.
+# Flutter library and tool build rules.
+set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 add_subdirectory(${FLUTTER_MANAGED_DIR})
 
+# Application build.
 add_subdirectory("runner")
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
-include(flutter/generated_plugins.cmake)
+include(flutter/generated_plugins.cmake OPTIONAL)
 
 # === Installation ===
-# Support staging allocations for install.
+# By default, "installing" just makes a copy of the bundle to the CMAKE_INSTALL_PREFIX
+# directory.
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/bin")
 endif()
