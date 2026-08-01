@@ -1,3 +1,5 @@
+# This file is managed by Flutter. Do not edit.
+
 # Location of the Flutter tool CMake logic.
 set(FLUTTER_ROOT "$ENV{FLUTTER_ROOT}")
 if(NOT FLUTTER_ROOT)
@@ -7,7 +9,7 @@ endif()
 set(FLUTTER_EPHEMERAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ephemeral")
 
 # Include the ephemeral generated CMake files.
-include("${FLUTTER_EPHEMERAL_DIR}/generated_config.cmake" OPTIONAL)
+include("${FLUTTER_EPHEMERAL_DIR}/generated_config.cmake")
 
 # Forward line-editing option to the build system.
 set(FLUTTER_TARGET_PLATFORM "windows-x64")
@@ -17,11 +19,6 @@ set(FLUTTER_LIBRARY "${FLUTTER_EPHEMERAL_DIR}/flutter_windows.dll")
 set(FLUTTER_LIBRARY_HEADER "${FLUTTER_EPHEMERAL_DIR}/flutter_windows.h")
 set(FLUTTER_ICU_DATA_FILE "${FLUTTER_EPHEMERAL_DIR}/icudtl.dat")
 set(FLUTTER_WRAPPER_HEADER "${FLUTTER_EPHEMERAL_DIR}/cpp_client_wrapper/include")
-
-# Define target for Flutter assembly.
-add_custom_target(flutter_assemble ALL
-  COMMAND ${CMAKE_COMMAND} -E echo "Building Flutter object..."
-)
 
 # Function to apply standard compiler and linker flags for Windows targets.
 function(apply_standard_settings TARGET)
