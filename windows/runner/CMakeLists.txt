@@ -3,6 +3,9 @@ project(runner LANGUAGES CXX)
 
 set(BINARY_NAME "hk_drop")
 
+set(PLUGIN_REGISTRANT_SOURCE "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc")
+set_source_files_properties(${PLUGIN_REGISTRANT_SOURCE} PROPERTIES GENERATED TRUE)
+
 add_executable(${BINARY_NAME} WIN32
   "main.cpp"
   "win32_window.cpp"
@@ -14,6 +17,7 @@ add_executable(${BINARY_NAME} WIN32
   "runner.exe.manifest"
   "utils.cpp"
   "utils.h"
+  ${PLUGIN_REGISTRANT_SOURCE}
 )
 
 apply_standard_settings(${BINARY_NAME})
