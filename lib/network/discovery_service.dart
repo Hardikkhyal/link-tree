@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:bonsoir/bonsoir.dart';
 import 'package:network_info_plus/network_info_plus.dart';
@@ -158,6 +159,26 @@ class DiscoveryService {
 
   /// Fast local ping scan fallback. Also refreshes lastSeen on confirmed live devices.
   Future<void> _scanSubnetFallback() async {
+    // 1. Always poll known paired devices' last IPs
+    final paired = TrustStore().pairedDevices;
+    for (var device in paired) {
+      if (device.ipAddress.isNotEmpty) {
+        _checkDevicePing(device.ipAddress);
+      }
+    }
+
+    // 2. Poll common hotspot gateways
+    const commonGateways = [
+      '192.168.43.1', // Standard Android hotspot
+      '192.168.43.137', // Some Android variants
+      '192.168.137.1', // Windows Mobile hotspot
+      '172.20.10.1', // iOS hotspot
+    ];
+    for (var gw in commonGateways) {
+      _checkDevicePing(gw);
+    }
+
+    // 3. Subnet scan for current network
     final localIp = await getLocalIpAddress();
     if (localIp == null) return;
 
@@ -175,19 +196,48 @@ class DiscoveryService {
   Future<void> _checkDevicePing(String targetIp) async {
     try {
       final client = HttpClient();
-      client.connectionTimeout = const Duration(milliseconds: 300);
+      client.connectionTimeout = const Duration(milliseconds: 1500);
       final req = await client.get(targetIp, AppConstants.defaultPort, '/api/v1/ping');
       final resp = await req.close();
       if (resp.statusCode == 200) {
-        // Refresh lastSeen for this IP if device is already known
-        final match = _discoveredDevices.values
-            .where((d) => d.ipAddress == targetIp)
-            .toList();
-        if (match.isNotEmpty) {
-          _lastSeen[match.first.id] = DateTime.now();
-        }
+        final bodyString = await resp.transform(utf8.decoder).join();
+        try {
+          final data = jsonDecode(bodyString);
+          if (data['status'] == 'ok' && data['id'] != null) {
+            final identity = DeviceIdentityService();
+            final id = data['id'];
+            if (id == identity.deviceId) return;
+
+            final isPaired = TrustStore().isDeviceTrusted(id);
+            
+            final device = DeviceModel(
+              id: id,
+              name: data['name'] ?? 'Unknown',
+              platform: data['platform'] ?? 'unknown',
+              ipAddress: targetIp,
+              port: AppConstants.defaultPort,
+              publicKey: data['pubKey'] ?? '',
+              isPaired: isPaired,
+              lastSeen: DateTime.now(),
+            );
+
+            _discoveredDevices[id] = device;
+            _lastSeen[id] = DateTime.now();
+
+            if (isPaired) {
+              // Update IP address in trust store if it changed
+              final existing = TrustStore().getDevice(id);
+              if (existing != null && existing.ipAddress != targetIp) {
+                TrustStore().addOrUpdatePairedDevice(device);
+              }
+            }
+
+            _notify();
+          }
+        } catch (_) {}
+      } else {
+        await resp.drain();
       }
-      await resp.drain();
     } catch (_) {}
   }
 

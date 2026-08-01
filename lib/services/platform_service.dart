@@ -6,7 +6,7 @@ import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
-class PlatformService with TrayListener {
+class PlatformService with TrayListener, WindowListener {
   static final PlatformService _instance = PlatformService._internal();
   factory PlatformService() => _instance;
   PlatformService._internal();
@@ -31,6 +31,9 @@ class PlatformService with TrayListener {
         await windowManager.show();
         await windowManager.focus();
       });
+      windowManager.addListener(this);
+      // Prevent application from exiting when window is closed (minimize to tray)
+      await windowManager.setPreventClose(true);
 
       // System Tray Menu Setup
       try {
@@ -78,6 +81,14 @@ class PlatformService with TrayListener {
       windowManager.focus();
     } else if (menuItem.key == 'exit_app') {
       exit(0);
+    }
+  }
+
+  @override
+  void onWindowClose() async {
+    bool isPreventClose = await windowManager.isPreventClose();
+    if (isPreventClose) {
+      windowManager.hide();
     }
   }
 }

@@ -9,6 +9,7 @@ import '../../network/transfer_client.dart';
 import '../../network/transfer_server.dart';
 import '../../security/device_identity_service.dart';
 import '../../security/trust_store.dart';
+import '../../services/platform_service.dart';
 import '../../services/text_sharing_service.dart';
 import '../widgets/device_card.dart';
 import '../widgets/drop_zone.dart';
@@ -88,6 +89,28 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         _pairedDevices = _trustStore.pairedDevices;
       });
     }
+
+    // Subscribe to share intents (Fast-Share auto-send)
+    PlatformService().sharedFilesStream.listen((sharedFiles) async {
+      if (sharedFiles.isEmpty) return;
+      final files = sharedFiles.map((f) => File(f.path)).toList();
+      
+      if (_trustStore.pairedDevices.length == 1) {
+        final target = _trustStore.pairedDevices.first;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Auto-sending to ${target.name}...')),
+          );
+        }
+        _sendFilesToDevice(target, files);
+      } else if (_trustStore.pairedDevices.length > 1) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Multiple paired devices. Tap a device to send.')),
+          );
+        }
+      }
+    });
   }
 
   @override
