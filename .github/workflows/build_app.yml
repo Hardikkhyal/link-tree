@@ -78,11 +78,6 @@ jobs:
       - name: Enable Windows Desktop Support
         run: flutter config --enable-windows-desktop
 
-      - name: Scaffold Windows desktop project files
-        run: |
-          flutter create --platforms=windows --project-name hk_drop . 2>$null
-          exit 0
-
       - name: Install Dependencies
         run: flutter pub get
 
