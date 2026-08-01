@@ -33,6 +33,53 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
+      - name: Copy Flutter engine cpp_client_wrapper sources from SDK into ephemeral
+        shell: pwsh
+        run: |
+          $sdkRoot = $env:FLUTTER_ROOT
+          Write-Host "Flutter SDK: $sdkRoot"
+
+          # The Flutter SDK ships cpp_client_wrapper sources under:
+          # $FLUTTER_ROOT/packages/flutter_tools/templates/...
+          # OR under the engine cache at:
+          # $FLUTTER_ROOT/bin/cache/artifacts/engine/windows-x64/cpp_client_wrapper/
+          
+          $wrapperSrc = "$sdkRoot\bin\cache\artifacts\engine\windows-x64\cpp_client_wrapper"
+          $ephemeralDir = "windows\flutter\ephemeral"
+          $wrapperDst = "$ephemeralDir\cpp_client_wrapper"
+
+          Write-Host "Looking for wrapper sources at: $wrapperSrc"
+
+          if (Test-Path $wrapperSrc) {
+            Write-Host "Found SDK wrapper sources - copying to ephemeral..."
+            New-Item -ItemType Directory -Force -Path $wrapperDst | Out-Null
+            Copy-Item "$wrapperSrc\*" -Destination $wrapperDst -Recurse -Force
+            Write-Host "Copied wrapper sources successfully"
+            Get-ChildItem $wrapperDst -Recurse | Select-Object FullName
+          } else {
+            Write-Host "Wrapper src NOT found at expected path. Listing engine cache:"
+            Get-ChildItem "$sdkRoot\bin\cache\artifacts\engine" -ErrorAction SilentlyContinue | Select-Object Name
+            Write-Host "Trying alternate paths..."
+            $alt = Get-ChildItem "$sdkRoot\bin\cache" -Recurse -Filter "core_implementations.cc" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($alt) {
+              Write-Host "Found at: $($alt.DirectoryName)"
+              New-Item -ItemType Directory -Force -Path $wrapperDst | Out-Null
+              Copy-Item "$($alt.DirectoryName)\*" -Destination $wrapperDst -Recurse -Force
+            } else {
+              Write-Host "ERROR: Could not find cpp_client_wrapper sources in Flutter SDK"
+              exit 1
+            }
+          }
+
+          # Also copy top-level engine headers (flutter_plugin_registrar.h etc.)
+          $engineHeaders = "$sdkRoot\bin\cache\artifacts\engine\windows-x64"
+          if (Test-Path $engineHeaders) {
+            Get-ChildItem $engineHeaders -Filter "*.h" | ForEach-Object {
+              Copy-Item $_.FullName -Destination $ephemeralDir -Force
+              Write-Host "Copied header: $($_.Name)"
+            }
+          }
+
       - name: Build Windows Executable (Release)
         run: flutter build windows --release
 
