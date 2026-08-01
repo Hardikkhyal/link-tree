@@ -33,9 +33,6 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Pre-assemble Ephemeral Engine Dependencies
-        run: flutter assemble -dTargetPlatform=windows-x64 -dBuildMode=release -o build/windows windows_release_bundle
-
       - name: Build Windows Executable (Release)
         run: flutter build windows --release
 
