@@ -33,14 +33,6 @@ jobs:
           dart --version
           flutter doctor -v
 
-      - name: Diagnostics Before Regeneration
-        shell: pwsh
-        run: |
-          Write-Host "=== Listing windows/flutter BEFORE regeneration ==="
-          if (Test-Path "windows/flutter") { Get-ChildItem "windows/flutter" } else { Write-Host "windows/flutter does not exist." }
-          Write-Host "=== Listing windows/flutter/ephemeral BEFORE regeneration ==="
-          if (Test-Path "windows/flutter/ephemeral") { Get-ChildItem "windows/flutter/ephemeral" -Recurse } else { Write-Host "windows/flutter/ephemeral does not exist." }
-
       - name: Clean Project Build Artifacts
         run: flutter clean
 
@@ -63,13 +55,64 @@ jobs:
       - name: Precache Windows Engine Artifacts
         run: flutter precache --windows
 
-      - name: Diagnostics After Regeneration
+      - name: Populate Windows Ephemeral Directory from SDK Cache
         shell: pwsh
         run: |
-          Write-Host "=== Listing windows/flutter AFTER regeneration ==="
-          if (Test-Path "windows/flutter") { Get-ChildItem "windows/flutter" } else { Write-Host "windows/flutter does not exist." }
-          Write-Host "=== Listing windows/flutter/ephemeral AFTER regeneration ==="
-          if (Test-Path "windows/flutter/ephemeral") { Get-ChildItem "windows/flutter/ephemeral" -Recurse } else { Write-Host "windows/flutter/ephemeral does not exist." }
+          $sdkRoot = $env:FLUTTER_ROOT
+          Write-Host "Flutter SDK Root: $sdkRoot"
+
+          $engineCacheDir = "$sdkRoot\bin\cache\artifacts\engine\windows-x64"
+          $ephemeralDir   = "windows\flutter\ephemeral"
+          $wrapperDst     = "$ephemeralDir\cpp_client_wrapper"
+
+          New-Item -ItemType Directory -Force -Path $ephemeralDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $wrapperDst   | Out-Null
+
+          if (Test-Path $engineCacheDir) {
+            # Copy DLLs, import libs, and engine headers
+            Get-ChildItem $engineCacheDir -File | ForEach-Object {
+              Copy-Item $_.FullName -Destination $ephemeralDir -Force
+            }
+
+            # Copy cpp_client_wrapper sources and headers
+            $wrapperSrc = "$engineCacheDir\cpp_client_wrapper"
+            if (Test-Path $wrapperSrc) {
+              Copy-Item "$wrapperSrc\*" -Destination $wrapperDst -Recurse -Force
+            }
+          }
+
+          # Ensure a minimal generated_config.cmake fallback exists if tool didn't write it
+          $genConfig = "$ephemeralDir\generated_config.cmake"
+          if (-not (Test-Path $genConfig)) {
+            Set-Content $genConfig "# Auto-generated fallback config`nset(FLUTTER_ROOT `"$sdkRoot`")"
+          }
+
+      - name: Defensive CI Pre-Build Inspection Check
+        shell: pwsh
+        run: |
+          Write-Host "=== Contents of windows/flutter ==="
+          if (Test-Path "windows/flutter") {
+            Get-ChildItem "windows/flutter"
+          } else {
+            Write-Host "windows/flutter does not exist!"
+          }
+
+          $genConfig = "windows/flutter/ephemeral/generated_config.cmake"
+          Write-Host "`n=== Checking generated_config.cmake ==="
+          if (Test-Path $genConfig) {
+            Write-Host "EXISTS: $genConfig"
+          } else {
+            Write-Host "MISSING: $genConfig"
+          }
+
+          $wrapperInclude = "windows/flutter/ephemeral/cpp_client_wrapper/include"
+          Write-Host "`n=== Checking cpp_client_wrapper/include ==="
+          if (Test-Path $wrapperInclude) {
+            Write-Host "EXISTS: $wrapperInclude"
+            Get-ChildItem $wrapperInclude -Recurse | Select-Object -First 10 FullName
+          } else {
+            Write-Host "MISSING: $wrapperInclude"
+          }
 
       - name: Validate Required Windows Files
         shell: pwsh
