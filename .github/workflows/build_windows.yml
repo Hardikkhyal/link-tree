@@ -25,7 +25,7 @@ jobs:
         with:
           flutter-version: '3.24.0'
           channel: 'stable'
-          cache: true
+          cache: false
 
       - name: Verify Toolchain & Environment
         run: |
@@ -50,8 +50,8 @@ jobs:
           if (Test-Path "windows/flutter/ephemeral") {
             Remove-Item -Recurse -Force "windows/flutter/ephemeral"
           }
-          if (Test-Path "build/windows") {
-            Remove-Item -Recurse -Force "build/windows"
+          if (Test-Path "build") {
+            Remove-Item -Recurse -Force "build"
           }
 
       - name: Enable Windows Desktop Support
@@ -59,6 +59,9 @@ jobs:
 
       - name: Install Dependencies
         run: flutter pub get
+
+      - name: Precache Windows Engine Artifacts
+        run: flutter precache --windows
 
       - name: Diagnostics After Regeneration
         shell: pwsh
@@ -91,7 +94,7 @@ jobs:
           }
 
       - name: Build Windows Executable (Release)
-        run: flutter build windows --release -v
+        run: flutter build windows --release --verbose
 
       - name: Validate Build Output Exists
         shell: pwsh
