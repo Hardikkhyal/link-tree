@@ -27,11 +27,32 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Verify Toolchain Environment
+      - name: Verify Toolchain & Environment
         run: |
           flutter --version
           dart --version
           flutter doctor -v
+
+      - name: Diagnostics Before Regeneration
+        shell: pwsh
+        run: |
+          Write-Host "=== Listing windows/flutter BEFORE regeneration ==="
+          if (Test-Path "windows/flutter") { Get-ChildItem "windows/flutter" } else { Write-Host "windows/flutter does not exist." }
+          Write-Host "=== Listing windows/flutter/ephemeral BEFORE regeneration ==="
+          if (Test-Path "windows/flutter/ephemeral") { Get-ChildItem "windows/flutter/ephemeral" -Recurse } else { Write-Host "windows/flutter/ephemeral does not exist." }
+
+      - name: Clean Project Build Artifacts
+        run: flutter clean
+
+      - name: Purge Stale Ephemeral & Build Directories
+        shell: pwsh
+        run: |
+          if (Test-Path "windows/flutter/ephemeral") {
+            Remove-Item -Recurse -Force "windows/flutter/ephemeral"
+          }
+          if (Test-Path "build/windows") {
+            Remove-Item -Recurse -Force "build/windows"
+          }
 
       - name: Enable Windows Desktop Support
         run: flutter config --enable-windows-desktop
@@ -39,8 +60,13 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Download Windows Engine Artifacts
-        run: flutter precache --windows
+      - name: Diagnostics After Regeneration
+        shell: pwsh
+        run: |
+          Write-Host "=== Listing windows/flutter AFTER regeneration ==="
+          if (Test-Path "windows/flutter") { Get-ChildItem "windows/flutter" } else { Write-Host "windows/flutter does not exist." }
+          Write-Host "=== Listing windows/flutter/ephemeral AFTER regeneration ==="
+          if (Test-Path "windows/flutter/ephemeral") { Get-ChildItem "windows/flutter/ephemeral" -Recurse } else { Write-Host "windows/flutter/ephemeral does not exist." }
 
       - name: Validate Required Windows Files
         shell: pwsh
@@ -61,7 +87,7 @@ jobs:
           if (-not (Test-Path $iconPath)) {
             Write-Host "Creating missing app_icon.ico fallback resource..."
             New-Item -ItemType Directory -Force -Path "windows/runner/resources" | Out-Null
-            [System.IO.File]::WriteAllBytes($iconPath, [System.Convert]::FromBase64String('AAABAAEAICAQAAAAAADoAgAAFgAAACgAAAAgAAAAQAAAAAEABAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAEBAQAEBAMABgYABgYEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA'))
+            [System.IO.File]::WriteAllBytes($iconPath, [System.Convert]::FromBase64String('AAABAAEAICAQAAAAAADoAgAAFgAAACgAAAAgAAAAQAAAAAEABAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAEBAQAEBAMABgYABgYEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA'))
           }
 
       - name: Build Windows Executable (Release)
