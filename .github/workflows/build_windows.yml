@@ -33,6 +33,37 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
+      - name: Regenerate windows/flutter/CMakeLists.txt from Flutter SDK template
+        shell: pwsh
+        run: |
+          # Flutter SDK keeps the canonical CMakeLists.txt for windows/flutter/ at:
+          # $FLUTTER_ROOT/packages/flutter_tools/templates/app/windows.tmpl/flutter/CMakeLists.txt.tmpl
+          # flutter pub get / flutter create regenerates this file.
+          # We overwrite our (potentially broken) custom version with the SDK-generated one.
+          
+          $sdkCmake = "$env:FLUTTER_ROOT\packages\flutter_tools\templates\app_shared\windows.tmpl\flutter\CMakeLists.txt.tmpl"
+          $altCmake = "$env:FLUTTER_ROOT\packages\flutter_tools\templates\app\windows.tmpl\flutter\CMakeLists.txt.tmpl"
+          
+          Write-Host "Looking for Flutter SDK CMakeLists template..."
+          Write-Host "SDK path: $env:FLUTTER_ROOT"
+          
+          # Find the template anywhere in the Flutter SDK
+          $template = Get-ChildItem "$env:FLUTTER_ROOT\packages\flutter_tools\templates" -Recurse -Filter "CMakeLists.txt.tmpl" -ErrorAction SilentlyContinue | 
+            Where-Object { $_.FullName -like "*windows*flutter*" } | 
+            Select-Object -First 1
+          
+          if ($template) {
+            Write-Host "Found template: $($template.FullName)"
+            $content = Get-Content $template.FullName -Raw
+            # Remove template variables ({{projectName}} etc) since we just need the cmake logic
+            $content = $content -replace '\{\{[^}]+\}\}', 'hk_drop'
+            Set-Content "windows\flutter\CMakeLists.txt" $content -Encoding UTF8
+            Write-Host "Restored windows/flutter/CMakeLists.txt from SDK template"
+          } else {
+            Write-Host "Template not found, listing flutter_tools templates:"
+            Get-ChildItem "$env:FLUTTER_ROOT\packages\flutter_tools\templates" -Recurse -Filter "*.tmpl" | Select-Object FullName
+          }
+
       - name: Build Windows Executable (Release)
         run: flutter build windows --release
 
