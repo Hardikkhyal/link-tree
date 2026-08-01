@@ -51,6 +51,7 @@ add_library(flutter_wrapper_app STATIC
 apply_standard_settings(flutter_wrapper_app)
 target_include_directories(flutter_wrapper_app PUBLIC
   "${FLUTTER_WRAPPER_HEADER}"
+  "${FLUTTER_EPHEMERAL_DIR}"
 )
 add_dependencies(flutter_wrapper_app flutter_assemble)
 
@@ -62,5 +63,6 @@ add_library(flutter_wrapper_plugin STATIC
 apply_standard_settings(flutter_wrapper_plugin)
 target_include_directories(flutter_wrapper_plugin PUBLIC
   "${FLUTTER_WRAPPER_HEADER}"
+  "${FLUTTER_EPHEMERAL_DIR}"
 )
 add_dependencies(flutter_wrapper_plugin flutter_assemble)
