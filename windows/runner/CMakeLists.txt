@@ -5,8 +5,6 @@ set(BINARY_NAME "hk_drop")
 
 add_executable(${BINARY_NAME} WIN32
   "main.cpp"
-  "my_application.cpp"
-  "my_application.h"
   "win32_window.cpp"
   "win32_window.h"
   "flutter_window.cpp"
