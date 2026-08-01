@@ -54,14 +54,15 @@ add_subdirectory("runner")
 include(flutter/generated_plugins.cmake OPTIONAL)
 
 # === Installation ===
-# By default, "installing" just makes a copy of the bundle to the CMAKE_INSTALL_PREFIX
-# directory.
+# Support staging allocations for install.
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/bin")
+  set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/runner")
 endif()
 
-install(CODE "
-  file(REMOVE_RECURSE \"${CMAKE_INSTALL_PREFIX}\")
-")
-install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/"
-  DESTINATION . USE_SOURCE_PERMISSIONS)
+install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}")
+
+install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  CONFIGURATIONS Debug;Profile;Release OPTIONAL)
+
+install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  CONFIGURATIONS Debug;Profile;Release OPTIONAL)
