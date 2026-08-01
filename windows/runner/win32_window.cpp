@@ -7,6 +7,12 @@
 
 namespace {
 
+int Scale(int source, double scale_factor) {
+  return static_cast<int>(source * scale_factor);
+}
+
+}  // namespace
+
 class WindowClassRegistrar {
  public:
   ~WindowClassRegistrar() {
@@ -40,12 +46,6 @@ class WindowClassRegistrar {
   bool registered_ = false;
   std::wstring window_class_name_ = L"FLUTTER_RUNNER_WIN32_WINDOW";
 };
-
-int Scale(int source, double scale_factor) {
-  return static_cast<int>(source * scale_factor);
-}
-
-}  // namespace
 
 Win32Window::Win32Window() {}
 
