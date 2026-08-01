@@ -9,13 +9,7 @@ endif()
 set(FLUTTER_EPHEMERAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ephemeral")
 
 # Include the ephemeral generated CMake files.
-include("${FLUTTER_EPHEMERAL_DIR}/generated_config.cmake" OPTIONAL)
-
-if(NOT TARGET flutter_assemble)
-  add_custom_target(flutter_assemble ALL
-    COMMAND ${CMAKE_COMMAND} -E echo "Flutter assemble"
-  )
-endif()
+include("${FLUTTER_EPHEMERAL_DIR}/generated_config.cmake")
 
 # Forward line-editing option to the build system.
 set(FLUTTER_TARGET_PLATFORM "windows-x64")
