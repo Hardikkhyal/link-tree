@@ -40,11 +40,6 @@ jobs:
       - name: Precache Windows artifacts
         run: flutter precache --windows
 
-      - name: Clean old generated files
-        run: |
-          flutter clean
-          if (Test-Path windows\flutter\ephemeral) { Remove-Item -Recurse -Force windows\flutter\ephemeral }
-
       - name: Install Dependencies
         run: flutter pub get
 
