@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/security/crypto_service.dart';
+import 'package:hk_drop/security/crypto_service.dart';
 
 void main() {
   group('CryptoService Tests', () {

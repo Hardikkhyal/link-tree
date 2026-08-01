@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/network/models/device_model.dart';
-import '../lib/network/models/payload_model.dart';
+import 'package:hk_drop/network/models/device_model.dart';
+import 'package:hk_drop/network/models/payload_model.dart';
 
 void main() {
   group('Payload and Model JSON Serialization Tests', () {
