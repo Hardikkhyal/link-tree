@@ -33,6 +33,16 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
+      - name: Validate and ensure Windows app icon exists
+        shell: pwsh
+        run: |
+          $iconPath = "windows/runner/resources/app_icon.ico"
+          if (-not (Test-Path $iconPath)) {
+            Write-Host "Creating missing $iconPath..."
+            New-Item -ItemType Directory -Force -Path "windows/runner/resources" | Out-Null
+            [System.IO.File]::WriteAllBytes($iconPath, [System.Convert]::FromBase64String('AAABAAEAICAQAAAAAADoAgAAFgAAACgAAAAgAAAAQAAAAAEABAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAEBAQAEBAMABgYABgYEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA'))
+          }
+
       - name: Copy Flutter engine artifacts from SDK cache into ephemeral
         shell: pwsh
         run: |
