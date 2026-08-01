@@ -30,8 +30,8 @@ jobs:
       - name: Enable Windows Desktop Support
         run: flutter config --enable-windows-desktop
 
-      - name: Scaffold Ephemeral Windows Files
-        run: flutter create --platforms=windows --project-name hk_drop .
+      - name: Pre-assemble Ephemeral Engine Dependencies
+        run: flutter assemble -dTargetPlatform=windows-x64 -dBuildMode=release windows_release_bundle
 
       - name: Install Dependencies
         run: flutter pub get
