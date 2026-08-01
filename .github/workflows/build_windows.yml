@@ -30,11 +30,11 @@ jobs:
       - name: Enable Windows Desktop Support
         run: flutter config --enable-windows-desktop
 
-      - name: Pre-assemble Ephemeral Engine Dependencies
-        run: flutter assemble -dTargetPlatform=windows-x64 -dBuildMode=release windows_release_bundle
-
       - name: Install Dependencies
         run: flutter pub get
+
+      - name: Pre-assemble Ephemeral Engine Dependencies
+        run: flutter assemble -dTargetPlatform=windows-x64 -dBuildMode=release -o build/windows windows_release_bundle
 
       - name: Build Windows Executable (Release)
         run: flutter build windows --release
