@@ -71,12 +71,9 @@ if(PLUGIN_BUNDLED_LIBRARIES)
 endif()
 
 # Copy Flutter assets and ICU data into the data/ subdirectory
-if(EXISTS "${PROJECT_BUILD_DIR}/flutter_assets")
-  install(DIRECTORY "${PROJECT_BUILD_DIR}/flutter_assets" DESTINATION "${CMAKE_INSTALL_PREFIX}/data"
-    CONFIGURATIONS Debug;Profile;Release OPTIONAL)
-endif()
+set(PROJECT_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../build")
+install(DIRECTORY "${PROJECT_BUILD_DIR}/flutter_assets" DESTINATION "${CMAKE_INSTALL_PREFIX}/data"
+  CONFIGURATIONS Debug;Profile;Release OPTIONAL)
 
-if(EXISTS "${FLUTTER_ICU_DATA_FILE}")
-  install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${CMAKE_INSTALL_PREFIX}/data"
-    CONFIGURATIONS Debug;Profile;Release OPTIONAL)
-endif()
+install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${CMAKE_INSTALL_PREFIX}/data"
+  CONFIGURATIONS Debug;Profile;Release OPTIONAL)

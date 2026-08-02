@@ -2,9 +2,9 @@ name: HK Drop CI/CD - Automated Multi-Platform Release Builds
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, new ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, new ]
   workflow_dispatch:
 
 jobs:
@@ -83,6 +83,9 @@ jobs:
 
       - name: Build Windows Executable (Release)
         run: flutter build windows --release
+
+      - name: Stage Complete Windows Release Bundle
+        run: cmake --install build\windows\x64 --config Release
 
       - name: Compress Windows Build Folder
         run: Get-ChildItem build\windows\x64\runner\Release | Compress-Archive -DestinationPath build\hk-drop-windows-x64.zip -Force
