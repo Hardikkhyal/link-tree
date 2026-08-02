@@ -82,6 +82,18 @@ foreach ($dir in $allDirs) {
 
 # 2. Second Pass: Find directory with executable, and auto-stage missing dll/data if needed
 if (-not $validDir) {
+    # Resolve Flutter SDK engine artifact cache directory locations
+    $sdkCacheDirs = @()
+    if ($env:FLUTTER_ROOT) {
+        $sdkCacheDirs += Join-Path $env:FLUTTER_ROOT "bin/cache/artifacts/engine/windows-x64"
+    }
+    $flutterCmd = Get-Command flutter -ErrorAction SilentlyContinue
+    if ($flutterCmd) {
+        $flutterBin = Split-Path $flutterCmd.Source -Parent
+        $flutterSdk = Split-Path $flutterBin -Parent
+        $sdkCacheDirs += Join-Path $flutterSdk "bin/cache/artifacts/engine/windows-x64"
+    }
+
     foreach ($dir in $allDirs) {
         $exeFound = $false
         foreach ($exe in $ExeNames) {
@@ -91,15 +103,21 @@ if (-not $validDir) {
             }
         }
         if ($exeFound) {
-            # Staging flutter_windows.dll if missing
+            Write-Host "Found executable target in directory: $dir. Validating and staging bundle dependencies..."
+
+            # Stage flutter_windows.dll if missing
             $dllPath = Join-Path $dir "flutter_windows.dll"
             if (-not (Test-Path $dllPath)) {
                 $dllSources = @(
                     "windows/flutter/ephemeral/flutter_windows.dll",
                     "build/windows/x64/flutter/flutter_windows.dll",
                     "build/windows/flutter/flutter_windows.dll",
-                    "$env:FLUTTER_ROOT/bin/cache/artifacts/engine/windows-x64/flutter_windows.dll"
+                    "build/windows/x64/flutter/ephemeral/flutter_windows.dll"
                 )
+                foreach ($sdkCache in $sdkCacheDirs) {
+                    $dllSources += Join-Path $sdkCache "flutter_windows.dll"
+                }
+
                 foreach ($src in $dllSources) {
                     if (Test-Path $src) {
                         Copy-Item $src -Destination $dir -Force
@@ -109,9 +127,14 @@ if (-not $validDir) {
                 }
             }
 
-            # Staging data/ directory if missing
+            # Stage data/ directory & assets if missing
             $dataPath = Join-Path $dir "data"
             if (-not (Test-Path $dataPath)) {
+                New-Item -ItemType Directory -Force -Path $dataPath | Out-Null
+            }
+
+            $dataAssetsPath = Join-Path $dataPath "flutter_assets"
+            if (-not (Test-Path $dataAssetsPath)) {
                 $assetSources = @(
                     "build/flutter_assets",
                     "build/windows/flutter_assets",
@@ -119,24 +142,26 @@ if (-not $validDir) {
                 )
                 foreach ($src in $assetSources) {
                     if (Test-Path $src) {
-                        $targetDataAssets = Join-Path $dataPath "flutter_assets"
-                        New-Item -ItemType Directory -Force -Path $targetDataAssets | Out-Null
-                        Copy-Item "$src\*" -Destination $targetDataAssets -Recurse -Force
-                        Write-Host "Auto-staged flutter_assets from $src to $targetDataAssets"
+                        New-Item -ItemType Directory -Force -Path $dataAssetsPath | Out-Null
+                        Copy-Item "$src\*" -Destination $dataAssetsPath -Recurse -Force
+                        Write-Host "Auto-staged flutter_assets from $src to $dataAssetsPath"
                         break
                     }
                 }
+            }
 
+            $icuPath = Join-Path $dataPath "icudtl.dat"
+            if (-not (Test-Path $icuPath)) {
                 $icuSources = @(
                     "windows/flutter/ephemeral/icudtl.dat",
-                    "build/windows/x64/flutter/icudtl.dat",
-                    "$env:FLUTTER_ROOT/bin/cache/artifacts/engine/windows-x64/icudtl.dat"
+                    "build/windows/x64/flutter/icudtl.dat"
                 )
+                foreach ($sdkCache in $sdkCacheDirs) {
+                    $icuSources += Join-Path $sdkCache "icudtl.dat"
+                }
+
                 foreach ($src in $icuSources) {
                     if (Test-Path $src) {
-                        if (-not (Test-Path $dataPath)) {
-                            New-Item -ItemType Directory -Force -Path $dataPath | Out-Null
-                        }
                         Copy-Item $src -Destination $dataPath -Force
                         Write-Host "Auto-staged icudtl.dat from $src to $dataPath"
                         break
@@ -144,7 +169,17 @@ if (-not $validDir) {
                 }
             }
 
-            # Re-evaluate
+            # Copy any compiled plugin DLLs if found in build directories
+            $pluginDlls = Get-ChildItem -Path "build" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne "flutter_windows.dll" }
+            foreach ($pDll in $pluginDlls) {
+                $destDll = Join-Path $dir $pDll.Name
+                if (-not (Test-Path $destDll)) {
+                    Copy-Item $pDll.FullName -Destination $dir -Force
+                    Write-Host "Auto-staged plugin library $($pDll.Name) to $dir"
+                }
+            }
+
+            # Re-verify directory completeness
             if ((Test-Path $dllPath) -and (Test-Path $dataPath)) {
                 $validDir = $dir
                 break
