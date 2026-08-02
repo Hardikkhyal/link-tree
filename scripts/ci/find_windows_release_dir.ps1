@@ -141,9 +141,9 @@ if (-not $validDir) {
         Write-Host "This means flutter build windows --release failed or the exe was not written."
         Write-Host "Searched for: $($ExeNames -join ', ')$(if ($AllowAnyExe) { ' + any *.exe fallback' })"
         Write-Host ""
-        Write-Host "=== Full recursive listing under build/ ==="
-        if (Test-Path "build") {
-            Get-ChildItem "build" -Recurse | Select-Object FullName
+        Write-Host "=== Full recursive listing under '$searchFrom' ==="
+        if (Test-Path $searchFrom) {
+            Get-ChildItem $searchFrom -Recurse | Select-Object FullName
         }
         exit 1
     }
@@ -156,8 +156,8 @@ if (-not $validDir) {
         foreach ($sdkEngDir in $sdkEngineDirs) {
             $dllCandidates += Join-Path $sdkEngDir "flutter_windows.dll"
         }
-        # Search the whole build tree for flutter_windows.dll
-        $found = Get-ChildItem "build" -Recurse -Filter "flutter_windows.dll" -ErrorAction SilentlyContinue |
+        # Search the build tree (respecting SearchRoot) for flutter_windows.dll
+        $found = Get-ChildItem $searchFrom -Recurse -Filter "flutter_windows.dll" -ErrorAction SilentlyContinue |
             Select-Object -First 1
         if ($found) {
             $dllCandidates = @($found.FullName) + $dllCandidates
@@ -181,8 +181,8 @@ if (-not $validDir) {
     $dataDest = Join-Path $exeDir "data"
     if (-not (Test-Path $dataDest)) {
         Write-Host "data/ directory missing from exe dir - attempting to stage it..."
-        # Search the whole build tree for data/ dir containing flutter_assets
-        $dataFound = Get-ChildItem "build" -Recurse -Directory -Filter "data" -ErrorAction SilentlyContinue |
+        # Search the build tree (respecting SearchRoot) for data/ dir containing flutter_assets
+        $dataFound = Get-ChildItem $searchFrom -Recurse -Directory -Filter "data" -ErrorAction SilentlyContinue |
             Where-Object { Test-Path (Join-Path $_.FullName "flutter_assets") } |
             Select-Object -First 1
         if ($dataFound) {
@@ -190,8 +190,8 @@ if (-not $validDir) {
             Copy-Item "$($dataFound.FullName)\*" -Destination $dataDest -Recurse -Force
             Write-Host "Staged data/ from: $($dataFound.FullName)"
         } else {
-            # Fallback: search for flutter_assets directory directly
-            $assetsFound = Get-ChildItem "build" -Recurse -Directory -Filter "flutter_assets" -ErrorAction SilentlyContinue |
+            # Fallback: search for flutter_assets directory directly under searchFrom
+            $assetsFound = Get-ChildItem $searchFrom -Recurse -Directory -Filter "flutter_assets" -ErrorAction SilentlyContinue |
                 Select-Object -First 1
             if ($assetsFound) {
                 $dataAssetsDest = Join-Path $dataDest "flutter_assets"
@@ -204,8 +204,8 @@ if (-not $validDir) {
         }
     }
 
-    # Stage any plugin DLLs found in the build tree
-    $pluginDlls = Get-ChildItem "build" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue |
+    # Stage any plugin DLLs found under searchFrom
+    $pluginDlls = Get-ChildItem $searchFrom -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -ne "flutter_windows.dll" -and $_.FullName -notmatch "\\x64\\flutter\\" }
     foreach ($dll in $pluginDlls) {
         $dest = Join-Path $exeDir $dll.Name

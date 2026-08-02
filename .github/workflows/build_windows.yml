@@ -158,12 +158,16 @@ jobs:
           # Use -OutputFile to receive the resolved path via file instead of stdout capture.
           # This avoids all stdout pollution issues from Write-Host in child pwsh processes,
           # which on Windows runners can bleed into stdout capture ($var = pwsh ...).
-          # -AllowAnyExe: if named exes (hk_drop.exe, runner.exe) are absent, fall back to
-          # any non-toolchain *.exe found under the build tree (catches renamed output binaries).
+          # -SearchRoot "build/windows": widened from build/windows/x64 so the script can
+          #   find flutter_windows.dll and data/ which flutter build may place at x64/ level
+          #   rather than inside runner/Release. The canonical fast-path still checks
+          #   build/windows/x64/runner/Release first, so standard layouts are fast.
+          # -AllowAnyExe: if hk_drop.exe/runner.exe are not found, fall back to any
+          #   non-toolchain *.exe under the build tree (catches renamed output binaries).
           $outFile = [System.IO.Path]::GetTempFileName()
           pwsh -ExecutionPolicy Bypass `
             -File "scripts/ci/find_windows_release_dir.ps1" `
-            -SearchRoot "build/windows/x64" `
+            -SearchRoot "build/windows" `
             -ExeNames "hk_drop.exe","runner.exe" `
             -OutputFile $outFile `
             -AllowAnyExe
