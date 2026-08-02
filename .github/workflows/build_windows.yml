@@ -2,9 +2,9 @@ name: Build Windows Desktop App
 
 on:
   push:
-    branches: [ main, master, new ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master, new ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:

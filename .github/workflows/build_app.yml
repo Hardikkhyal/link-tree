@@ -2,9 +2,9 @@ name: HK Drop CI/CD - Automated Multi-Platform Release Builds
 
 on:
   push:
-    branches: [ main, master, new ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master, new ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
