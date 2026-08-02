@@ -169,18 +169,11 @@ jobs:
           pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SelfCheck
 
           Write-Host "Discovering release directory under build/windows/x64..."
-          try {
-            $releaseDir = pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SearchRoot "build/windows/x64" -ExeNames "hk_drop.exe","runner.exe"
-            if (-not $releaseDir) {
-              throw "Helper script returned empty output."
-            }
-            Write-Host "Discovered valid release directory: $releaseDir"
-            Add-Content -Path $env:GITHUB_ENV -Value "RELEASE_DIR=$releaseDir"
-            
-            Write-Host "Verified release directory contents:"
-            Get-ChildItem -Path $releaseDir
-          } catch {
-            Write-Error "CRITICAL: Failed to locate valid release directory! Failure reason: $_"
+          $releaseDir = pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SearchRoot "build/windows/x64" -ExeNames "hk_drop.exe","runner.exe"
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0 -or -not $releaseDir) {
+            Write-Host "CRITICAL: Failed to locate valid release directory! Printing diagnostic directory tree..."
             Write-Host "`n=== Recursive directory tree of build/windows ==="
             if (Test-Path "build/windows") {
               Get-ChildItem "build/windows" -Recurse | Select-Object FullName
@@ -196,6 +189,12 @@ jobs:
             }
             exit 1
           }
+
+          Write-Host "Discovered valid release directory: $releaseDir"
+          Add-Content -Path $env:GITHUB_ENV -Value "RELEASE_DIR=$releaseDir"
+          
+          Write-Host "Verified release directory contents:"
+          Get-ChildItem -Path $releaseDir
 
       - name: Compress Windows Build Folder
         shell: pwsh
