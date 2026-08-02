@@ -260,7 +260,7 @@ if ($validDir) {
     foreach ($dir in $allDirs) {
         $exes = ($ExeNames | Where-Object { Test-Path (Join-Path $dir $_) }) -join ", "
         $hasDll  = Test-Path (Join-Path $dir "flutter_windows.dll")
-        $hasData = Test-HasValidData $dir
+        $hasData = Test-HasRuntimeAssets $dir
         Write-Host "Dir: $dir | Exes: [$exes] | DLL: $hasDll | Data: $hasData"
     }
     Write-Error "Could not locate a valid release directory containing ($($ExeNames -join ' | ')), flutter_windows.dll, and data/ under $SearchRoot"
