@@ -36,5 +36,5 @@ add_dependencies(${BINARY_NAME} flutter_assemble)
 # the internal binary.
 set_target_properties(${BINARY_NAME}
   PROPERTIES
-  OUTPUT_NAME "runner"
+  OUTPUT_NAME "${BINARY_NAME}"
 )

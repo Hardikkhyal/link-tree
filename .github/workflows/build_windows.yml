@@ -144,8 +144,10 @@ jobs:
         run: |
           $buildConfig = "Release"
           $releaseDir  = "build/windows/x64/runner/$buildConfig"
-          $exePath     = "$releaseDir/runner.exe"
-          $altExePath  = "$releaseDir/hk_drop.exe"
+          $exePath     = "$releaseDir/hk_drop.exe"
+          $altExePath  = "$releaseDir/runner.exe"
+          $dllPath     = "$releaseDir/flutter_windows.dll"
+          $dataDir     = "$releaseDir/data"
 
           Write-Host "Checking release directory: $releaseDir"
           if (-not (Test-Path $releaseDir)) {
@@ -155,11 +157,19 @@ jobs:
           }
 
           Write-Host "Release directory contents:"
-          Get-ChildItem $releaseDir | Select-Object Name, Length
+          Get-ChildItem $releaseDir
 
           if (-not (Test-Path $exePath) -and -not (Test-Path $altExePath)) {
             Write-Error "CRITICAL: Executable missing from release output directory!"
             exit 1
+          }
+
+          if (-not (Test-Path $dllPath)) {
+            Write-Host "WARNING: flutter_windows.dll not in release root, verifying installation dependencies..."
+          }
+
+          if (-not (Test-Path $dataDir)) {
+            Write-Host "WARNING: data directory missing from release bundle root!"
           }
 
       - name: Compress Windows Build Folder
@@ -171,8 +181,8 @@ jobs:
             Write-Error "Cannot compress - missing release directory: $releaseDir"
             exit 1
           }
-          Compress-Archive -Path "$releaseDir\*" -DestinationPath $zipPath -Force
-          Write-Host "Compressed release bundle to $zipPath"
+          Get-ChildItem -Path $releaseDir | Compress-Archive -DestinationPath $zipPath -Force
+          Write-Host "Compressed complete release bundle to $zipPath"
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
