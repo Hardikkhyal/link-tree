@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param (
     [string]$SearchRoot = "build/windows/x64",
-    [string[]]$ExeNames = @("hk_drop.exe", "runner.exe"),
+    [string[]]$ExeNames = @("link_tree.exe", "hk_drop.exe", "runner.exe"),
     [switch]$SelfCheck
 )
 

@@ -168,8 +168,13 @@ jobs:
           # Test reusable helper self-check first
           pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SelfCheck
 
+          Write-Host "=== Candidate .exe files under build/windows/x64 ==="
+          if (Test-Path "build/windows/x64") {
+            Get-ChildItem "build/windows/x64" -Recurse -Filter *.exe | Select-Object FullName
+          }
+
           Write-Host "Discovering release directory under build/windows/x64..."
-          $releaseDir = pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SearchRoot "build/windows/x64" -ExeNames "hk_drop.exe","runner.exe"
+          $releaseDir = pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SearchRoot "build/windows/x64" -ExeNames "link_tree.exe","hk_drop.exe","runner.exe"
           $exitCode = $LASTEXITCODE
 
           if ($exitCode -ne 0 -or -not $releaseDir) {
@@ -202,7 +207,7 @@ jobs:
           $releaseDir = $env:RELEASE_DIR
           if (-not $releaseDir -or -not (Test-Path $releaseDir)) {
             Write-Host "RELEASE_DIR env var missing or invalid. Invoking helper discovery fallback..."
-            $releaseDir = pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SearchRoot "build/windows/x64" -ExeNames "hk_drop.exe","runner.exe"
+            $releaseDir = pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SearchRoot "build/windows/x64" -ExeNames "link_tree.exe","hk_drop.exe","runner.exe"
           }
 
           if (-not $releaseDir -or -not (Test-Path $releaseDir)) {
