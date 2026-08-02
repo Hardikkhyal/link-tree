@@ -3,6 +3,7 @@ param (
     [string]$SearchRoot    = "build/windows/x64",
     [string[]]$ExeNames    = @("hk_drop.exe", "runner.exe"),
     [string]$OutputFile    = "",   # If set, resolved path is written to this file (avoids stdout capture issues)
+    [switch]$AllowAnyExe,          # If set, fall back to scanning for any *.exe when named exes are not found
     [switch]$SelfCheck
 )
 
@@ -70,7 +71,20 @@ if (Test-Path $SearchRoot)             { $searchFrom = $SearchRoot }
 elseif (Test-Path "build/windows/x64") { $searchFrom = "build/windows/x64" }
 elseif (Test-Path "build/windows")     { $searchFrom = "build/windows" }
 
-# Build list of all directories to scan
+# Canonical fast-path: check the standard Flutter CMake output location first.
+# This avoids an expensive full recursive scan when the layout is standard.
+$canonicalRelease = Join-Path (Join-Path (Join-Path "build" "windows") "x64") (Join-Path "runner" "Release")
+if (Test-Path $canonicalRelease) {
+    Write-Host "Canonical fast-path found: $canonicalRelease"
+    if (Test-IsCompleteBundle $canonicalRelease) {
+        Write-Host "Canonical path is a complete bundle."
+        $validDir = $canonicalRelease
+    } else {
+        Write-Host "Canonical path exists but is not yet a complete bundle - will attempt staging."
+    }
+}
+
+# Build list of all directories to scan (used in Phase 1 and Phase 2)
 $candidateDirs = @()
 if (Test-Path $searchFrom) {
     $candidateDirs += $searchFrom
@@ -78,14 +92,14 @@ if (Test-Path $searchFrom) {
     if ($subDirs) { $candidateDirs += $subDirs.FullName }
 }
 
-Write-Host "=== Phase 1: Scanning $($candidateDirs.Count) candidate directories for complete bundle ==="
-$validDir = $null
-
-foreach ($dir in $candidateDirs) {
-    if (Test-IsCompleteBundle $dir) {
-        Write-Host "FOUND complete bundle at: $dir"
-        $validDir = $dir
-        if ($dir -match "Release") { break }
+if (-not $validDir) {
+    Write-Host "=== Phase 1: Scanning $($candidateDirs.Count) candidate directories for complete bundle ==="
+    foreach ($dir in $candidateDirs) {
+        if (Test-IsCompleteBundle $dir) {
+            Write-Host "FOUND complete bundle at: $dir"
+            $validDir = $dir
+            if ($dir -match "Release") { break }
+        }
     }
 }
 
@@ -93,22 +107,39 @@ foreach ($dir in $candidateDirs) {
 if (-not $validDir) {
     Write-Host "=== Phase 2: No complete bundle found. Attempting to stage assets ==="
 
-    # Find where the exe lives
+    # Find where the named exe lives
     $exeDir = $null
     foreach ($dir in $candidateDirs) {
         foreach ($exe in $ExeNames) {
             if (Test-Path (Join-Path $dir $exe)) {
                 $exeDir = $dir
-                Write-Host "Found exe in: $dir"
+                Write-Host "Found named exe '$exe' in: $dir"
                 break
             }
         }
         if ($exeDir) { break }
     }
 
+    # Fallback: scan for any *.exe when -AllowAnyExe is set and named exes were not found.
+    # Excludes well-known build-tool executables (cmake, ninja, clang, dart, flutter, etc.)
+    # so we don't accidentally treat a toolchain binary as the app executable.
+    if (-not $exeDir -and $AllowAnyExe) {
+        Write-Host "Named exe not found. Fallback: scanning for any *.exe under '$searchFrom'..."
+        $toolExePattern = '^(cmake|ctest|cpack|ninja|clang|clang\+\+|flutter|dart|pub|git|python|node|npm|msbuild|devenv|link|cl|rc|mt|signtool|makensis)(\.exe)?$'
+        $anyExe = Get-ChildItem $searchFrom -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch $toolExePattern } |
+            Sort-Object { if ($_.DirectoryName -match 'Release') { 0 } else { 1 } } |
+            Select-Object -First 1
+        if ($anyExe) {
+            $exeDir = $anyExe.DirectoryName
+            Write-Host "Fallback: found exe '$($anyExe.Name)' in: $exeDir"
+        }
+    }
+
     if (-not $exeDir) {
         Write-Host "ERROR (Build failure): No exe found at all under '$searchFrom'."
-        Write-Host "This means flutter build windows failed or the exe was not written."
+        Write-Host "This means flutter build windows --release failed or the exe was not written."
+        Write-Host "Searched for: $($ExeNames -join ', ')$(if ($AllowAnyExe) { ' + any *.exe fallback' })"
         Write-Host ""
         Write-Host "=== Full recursive listing under build/ ==="
         if (Test-Path "build") {
