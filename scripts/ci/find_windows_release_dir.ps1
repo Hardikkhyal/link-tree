@@ -10,7 +10,8 @@ function Test-IsCompleteBundle {
     param([string]$dir)
     $hasExe  = ($ExeNames | Where-Object { Test-Path (Join-Path $dir $_) }).Count -gt 0
     $hasDll  = Test-Path (Join-Path $dir "flutter_windows.dll")
-    $hasData = (Test-Path (Join-Path $dir "data")) -or (Test-Path (Join-Path $dir "data/flutter_assets"))
+    # Use chained Join-Path for nested paths - forward-slash inside Join-Path is unreliable on Windows runners
+    $hasData = (Test-Path (Join-Path $dir "data")) -or (Test-Path (Join-Path (Join-Path $dir "data") "flutter_assets"))
     return ($hasExe -and $hasDll -and $hasData)
 }
 
@@ -19,7 +20,8 @@ function Write-DirAudit {
     param([string]$dir)
     $exeHits = ($ExeNames | Where-Object { Test-Path (Join-Path $dir $_) }) -join ", "
     $hasDll  = Test-Path (Join-Path $dir "flutter_windows.dll")
-    $hasData = (Test-Path (Join-Path $dir "data")) -or (Test-Path (Join-Path $dir "data/flutter_assets"))
+    # Use chained Join-Path for nested paths - forward-slash inside Join-Path is unreliable on Windows runners
+    $hasData = (Test-Path (Join-Path $dir "data")) -or (Test-Path (Join-Path (Join-Path $dir "data") "flutter_assets"))
     Write-Host "  Audit: $dir"
     Write-Host "    Exe  : $(if ($exeHits) { $exeHits } else { 'MISSING' })"
     Write-Host "    DLL  : $(if ($hasDll)  { 'OK' } else { 'MISSING' })"
@@ -30,8 +32,9 @@ function Write-DirAudit {
 if ($SelfCheck) {
     Write-Host "Running helper self-check test..."
     $testDir    = Join-Path $env:TEMP "find_release_selfcheck_$(Get-Random)"
-    $releaseDir = Join-Path $testDir "runner/Release"
-    $dataDir    = Join-Path $releaseDir "data/flutter_assets"
+    # Use chained Join-Path for nested paths - forward-slash inside Join-Path is unreliable on Windows runners
+    $releaseDir = Join-Path (Join-Path $testDir "runner") "Release"
+    $dataDir    = Join-Path (Join-Path $releaseDir "data") "flutter_assets"
     New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
     Set-Content -Path (Join-Path $releaseDir "hk_drop.exe")          -Value "dummy"
     Set-Content -Path (Join-Path $releaseDir "flutter_windows.dll")  -Value "dummy"
