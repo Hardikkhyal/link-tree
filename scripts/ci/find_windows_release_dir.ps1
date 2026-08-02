@@ -76,7 +76,7 @@ function Test-HasValidData ($dirPath) {
     return $false
 }
 
-# 1. First Pass: Look for a directory that already contains exe, flutter_windows.dll, and data/flutter_assets
+# 1. First Pass: Look for a directory that already contains exe, flutter_windows.dll, and data/
 $validDir = $null
 
 foreach ($dir in $allDirs) {
@@ -127,11 +127,12 @@ if (-not $validDir) {
             $dllPath = Join-Path $dir "flutter_windows.dll"
             if (-not (Test-Path $dllPath)) {
                 $dllSources = @(
+                    "build/windows/x64/runner/flutter_windows.dll",
+                    "build/windows/x64/runner/Release/flutter_windows.dll",
                     "windows/flutter/ephemeral/flutter_windows.dll",
                     "build/windows/x64/flutter/flutter_windows.dll",
                     "build/windows/flutter/flutter_windows.dll",
-                    "build/windows/x64/flutter/ephemeral/flutter_windows.dll",
-                    "build/windows/x64/runner/Release/flutter_windows.dll"
+                    "build/windows/x64/flutter/ephemeral/flutter_windows.dll"
                 )
                 foreach ($sdkCache in $sdkCacheDirs) {
                     $dllSources += Join-Path $sdkCache "flutter_windows.dll"
@@ -153,6 +154,7 @@ if (-not $validDir) {
             if (-not (Test-HasValidData $dir)) {
                 # Fallback check for whole data directories in common release locations
                 $dataDirSources = @(
+                    "build/windows/x64/runner/data",
                     "build/windows/x64/runner/Release/data",
                     "build/windows/x64/Release/data",
                     "build/windows/runner/Release/data"
@@ -170,6 +172,7 @@ if (-not $validDir) {
 
                 if (-not $stagedData) {
                     $assetSources = @(
+                        "build/windows/x64/runner/data/flutter_assets",
                         "build/windows/x64/runner/Release/data/flutter_assets",
                         "build/windows/x64/runner/Release/flutter_assets",
                         "build/windows/x64/data/flutter_assets",
@@ -191,6 +194,8 @@ if (-not $validDir) {
                         $icuSources = @(
                             "windows/flutter/ephemeral/icudtl.dat",
                             "build/windows/x64/flutter/icudtl.dat",
+                            "build/windows/x64/runner/icudtl.dat",
+                            "build/windows/x64/runner/data/icudtl.dat",
                             "build/windows/x64/runner/Release/data/icudtl.dat",
                             "build/windows/x64/runner/Release/icudtl.dat"
                         )
