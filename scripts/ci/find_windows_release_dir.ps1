@@ -1,18 +1,55 @@
 [CmdletBinding()]
 param (
     [string]$SearchRoot = "build/windows/x64",
-    [string[]]$ExeNames = @("link_tree.exe", "hk_drop.exe", "runner.exe"),
+    [string[]]$ExeNames = @("hk_drop.exe", "runner.exe"),
     [switch]$SelfCheck
 )
+
+# Helper function to check/stage runtime assets in candidate dir or parent dir
+function Test-HasRuntimeAssets ($dirPath) {
+    $dllDirect  = Test-Path (Join-Path $dirPath "flutter_windows.dll")
+    $dataDirect = (Test-Path (Join-Path $dirPath "data/flutter_assets")) -or (Test-Path (Join-Path $dirPath "data"))
+
+    if ($dllDirect -and $dataDirect) {
+        return $true
+    }
+
+    # Check parent directory (for nested runner layouts e.g. runner/Release)
+    $parentPath = Split-Path $dirPath -Parent
+    if ($parentPath -and (Test-Path $parentPath)) {
+        $dllParent  = Test-Path (Join-Path $parentPath "flutter_windows.dll")
+        $dataParent = (Test-Path (Join-Path $parentPath "data/flutter_assets")) -or (Test-Path (Join-Path $parentPath "data"))
+
+        if (($dllDirect -or $dllParent) -and ($dataDirect -or $dataParent)) {
+            if (-not $dllDirect -and $dllParent) {
+                Copy-Item (Join-Path $parentPath "flutter_windows.dll") -Destination $dirPath -Force
+                Write-Host "Auto-staged flutter_windows.dll from parent directory ($parentPath) to $dirPath"
+            }
+            if (-not $dataDirect -and $dataParent) {
+                $parentData = Join-Path $parentPath "data"
+                $childData  = Join-Path $dirPath "data"
+                New-Item -ItemType Directory -Force -Path $childData | Out-Null
+                Copy-Item "$parentData\*" -Destination $childData -Recurse -Force
+                Write-Host "Auto-staged data/ directory from parent directory ($parentPath) to $dirPath"
+            }
+            return $true
+        }
+    }
+    return $false
+}
 
 if ($SelfCheck) {
     Write-Host "Running helper self-check test..."
     $testDir = Join-Path $env:TEMP "test_find_release_dir_$(Get-Random)"
-    $subDir  = Join-Path $testDir "runner/Release"
-    $dataAssetsDir = Join-Path $subDir "data/flutter_assets"
-    New-Item -ItemType Directory -Force -Path $dataAssetsDir | Out-Null
+    $parentDir = Join-Path $testDir "runner"
+    $subDir  = Join-Path $parentDir "Release"
+    New-Item -ItemType Directory -Force -Path $subDir | Out-Null
     Set-Content -Path (Join-Path $subDir "hk_drop.exe") -Value "dummy"
-    Set-Content -Path (Join-Path $subDir "flutter_windows.dll") -Value "dummy"
+
+    # Put assets in parent directory to test parent-layout staging
+    $parentData = Join-Path $parentDir "data/flutter_assets"
+    New-Item -ItemType Directory -Force -Path $parentData | Out-Null
+    Set-Content -Path (Join-Path $parentDir "flutter_windows.dll") -Value "dummy"
 
     $found = Get-ChildItem -Path $testDir -Recurse -Directory -ErrorAction SilentlyContinue | Where-Object {
         $dir = $_.FullName
@@ -23,9 +60,7 @@ if ($SelfCheck) {
                 break
             }
         }
-        $dllExists  = Test-Path (Join-Path $dir "flutter_windows.dll")
-        $dataAssetsExists = (Test-Path (Join-Path $dir "data/flutter_assets")) -or (Test-Path (Join-Path $dir "data"))
-        $exeExists -and $dllExists -and $dataAssetsExists
+        $exeExists -and (Test-HasRuntimeAssets $dir)
     } | Select-Object -First 1
 
     Remove-Item -Recurse -Force $testDir -ErrorAction SilentlyContinue
@@ -60,23 +95,7 @@ if ($childDirs) {
     $allDirs += ($childDirs | ForEach-Object { $_.FullName })
 }
 
-# Helper to check if a directory has valid data assets
-function Test-HasValidData ($dirPath) {
-    $dataDir = Join-Path $dirPath "data"
-    if (Test-Path $dataDir) {
-        $flutterAssets = Join-Path $dataDir "flutter_assets"
-        if (Test-Path $flutterAssets) {
-            return $true
-        }
-        $items = Get-ChildItem -Path $dataDir -ErrorAction SilentlyContinue
-        if ($items -and $items.Count -gt 0) {
-            return $true
-        }
-    }
-    return $false
-}
-
-# 1. First Pass: Look for a directory that already contains exe, flutter_windows.dll, and data/
+# 1. First Pass: Look for candidate directory with executable & runtime assets in dir or parent
 $validDir = $null
 
 foreach ($dir in $allDirs) {
@@ -87,10 +106,8 @@ foreach ($dir in $allDirs) {
             break
         }
     }
-    $dllExists  = Test-Path (Join-Path $dir "flutter_windows.dll")
-    $dataExists = Test-HasValidData $dir
 
-    if ($exeFound -and $dllExists -and $dataExists) {
+    if ($exeFound -and (Test-HasRuntimeAssets $dir)) {
         $validDir = $dir
         if ($dir -match "Release") {
             break
@@ -98,9 +115,8 @@ foreach ($dir in $allDirs) {
     }
 }
 
-# 2. Second Pass: Find directory with executable, and auto-stage missing dll/data if needed
+# 2. Second Pass: Find directory with executable, and auto-stage missing dll/data from global build/SDK caches
 if (-not $validDir) {
-    # Resolve Flutter SDK engine artifact cache directory locations
     $sdkCacheDirs = @()
     if ($env:FLUTTER_ROOT) {
         $sdkCacheDirs += Join-Path $env:FLUTTER_ROOT "bin/cache/artifacts/engine/windows-x64"
@@ -121,7 +137,7 @@ if (-not $validDir) {
             }
         }
         if ($exeFound) {
-            Write-Host "Found executable target in directory: $dir. Validating and staging bundle dependencies..."
+            Write-Host "Found executable target in directory: $dir. Staging missing bundle dependencies..."
 
             # Stage flutter_windows.dll if missing
             $dllPath = Join-Path $dir "flutter_windows.dll"
@@ -151,8 +167,7 @@ if (-not $validDir) {
             $dataPath = Join-Path $dir "data"
             $dataAssetsPath = Join-Path $dataPath "flutter_assets"
 
-            if (-not (Test-HasValidData $dir)) {
-                # Fallback check for whole data directories in common release locations
+            if (-not (Test-HasRuntimeAssets $dir)) {
                 $dataDirSources = @(
                     "build/windows/x64/runner/data",
                     "build/windows/x64/runner/Release/data",
@@ -228,7 +243,7 @@ if (-not $validDir) {
             }
 
             # Re-verify directory completeness
-            if ((Test-Path $dllPath) -and (Test-HasValidData $dir)) {
+            if (Test-HasRuntimeAssets $dir) {
                 $validDir = $dir
                 break
             }
