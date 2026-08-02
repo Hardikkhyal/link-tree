@@ -139,6 +139,21 @@ jobs:
       - name: Build Windows Executable (Release)
         run: flutter build windows --release --verbose
 
+      - name: Pre-flight - Inspect Build Output
+        shell: pwsh
+        run: |
+          Write-Host "=== Inspecting build/windows/x64/runner/Release ==="
+          $relDir = "build/windows/x64/runner/Release"
+          if (Test-Path $relDir) {
+            Get-ChildItem $relDir -Recurse | Select-Object FullName, Length
+          } else {
+            Write-Host "Directory does not exist: $relDir"
+            Write-Host "=== Listing build/windows (top 2 levels) ==="
+            if (Test-Path "build/windows") {
+              Get-ChildItem "build/windows" -Recurse -Depth 3 | Select-Object FullName
+            }
+          }
+
       # ── Assemble the release bundle ─────────────────────────────────────────
       # flutter build windows places the exe in build/windows/x64/runner/Release
       # but flutter_windows.dll and data/ may be written to different locations

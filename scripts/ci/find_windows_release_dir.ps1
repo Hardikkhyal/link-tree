@@ -65,32 +65,53 @@ if ($flutterCmd) {
     $sdkEngineDirs += Join-Path $flutterSdkRoot "bin/cache/artifacts/engine/windows-x64"
 }
 
-# Resolve search root with fallbacks
+# Resolve search root with fallbacks, then normalize to an absolute path.
+# Relative paths passed through pwsh -File may resolve inconsistently when
+# Get-ChildItem returns .FullName (always absolute) mixed with the relative root.
 $searchFrom = "build"
-if (Test-Path $SearchRoot)             { $searchFrom = $SearchRoot }
-elseif (Test-Path "build/windows/x64") { $searchFrom = "build/windows/x64" }
-elseif (Test-Path "build/windows")     { $searchFrom = "build/windows" }
+if     (Test-Path $SearchRoot)             { $searchFrom = $SearchRoot }
+elseif (Test-Path "build/windows/x64")    { $searchFrom = "build/windows/x64" }
+elseif (Test-Path "build/windows")        { $searchFrom = "build/windows" }
+
+# Normalize to absolute path so all candidateDirs entries are consistent.
+if (Test-Path $searchFrom) {
+    $searchFrom = (Resolve-Path $searchFrom).Path
+}
+Write-Host "Search root (absolute): $searchFrom"
 
 # Canonical fast-path: check the standard Flutter CMake output location first.
-# This avoids an expensive full recursive scan when the layout is standard.
-$canonicalRelease = Join-Path (Join-Path (Join-Path "build" "windows") "x64") (Join-Path "runner" "Release")
-if (Test-Path $canonicalRelease) {
-    Write-Host "Canonical fast-path found: $canonicalRelease"
-    if (Test-IsCompleteBundle $canonicalRelease) {
-        Write-Host "Canonical path is a complete bundle."
-        $validDir = $canonicalRelease
-    } else {
-        Write-Host "Canonical path exists but is not yet a complete bundle - will attempt staging."
+# Build the path using $searchFrom's parent so it is always absolute.
+$canonicalRelease = Join-Path (Join-Path (Split-Path $searchFrom -Parent) "x64") (Join-Path "runner" "Release")
+# Also try the direct x64/runner/Release relative to searchFrom
+$alt1 = Join-Path $searchFrom (Join-Path "x64" (Join-Path "runner" "Release"))
+$alt2 = Join-Path $searchFrom (Join-Path "runner" "Release")
+foreach ($cp in @($canonicalRelease, $alt1, $alt2)) {
+    if (Test-Path $cp) {
+        $cpAbs = (Resolve-Path $cp).Path
+        Write-Host "Canonical fast-path found: $cpAbs"
+        if (Test-IsCompleteBundle $cpAbs) {
+            Write-Host "Canonical path is a complete bundle."
+            $validDir = $cpAbs
+        } else {
+            Write-Host "Canonical path exists but is not yet a complete bundle - will attempt staging."
+        }
+        break
     }
 }
 
-# Build list of all directories to scan (used in Phase 1 and Phase 2)
-$candidateDirs = @()
+# Build list of unique absolute directories to scan (used in Phase 1 and Phase 2).
+# Deduplication prevents double-staging when the same dir appears under multiple aliases.
+$candidateSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 if (Test-Path $searchFrom) {
-    $candidateDirs += $searchFrom
+    $candidateSet.Add($searchFrom) | Out-Null
     $subDirs = Get-ChildItem $searchFrom -Recurse -Directory -ErrorAction SilentlyContinue
-    if ($subDirs) { $candidateDirs += $subDirs.FullName }
+    if ($subDirs) {
+        foreach ($sd in $subDirs) { $candidateSet.Add($sd.FullName) | Out-Null }
+    }
 }
+# Sort so Release directories are visited first - improves Phase 1 hit rate.
+$candidateDirs = $candidateSet | Sort-Object { if ($_ -match '\\Release$') { 0 } elseif ($_ -match 'Release') { 1 } else { 2 } }
+Write-Host "Candidate directories: $($candidateDirs.Count)"
 
 if (-not $validDir) {
     Write-Host "=== Phase 1: Scanning $($candidateDirs.Count) candidate directories for complete bundle ==="
@@ -156,10 +177,12 @@ if (-not $validDir) {
         foreach ($sdkEngDir in $sdkEngineDirs) {
             $dllCandidates += Join-Path $sdkEngDir "flutter_windows.dll"
         }
-        # Search the build tree (respecting SearchRoot) for flutter_windows.dll
+        # Search the build tree for flutter_windows.dll, preferring Release-path copies.
         $found = Get-ChildItem $searchFrom -Recurse -Filter "flutter_windows.dll" -ErrorAction SilentlyContinue |
+            Sort-Object { if ($_.DirectoryName -match '\\Release$') { 0 } elseif ($_.DirectoryName -match 'Release') { 1 } else { 2 } } |
             Select-Object -First 1
         if ($found) {
+            Write-Host "Found flutter_windows.dll candidate: $($found.FullName)"
             $dllCandidates = @($found.FullName) + $dllCandidates
         }
 
@@ -181,17 +204,19 @@ if (-not $validDir) {
     $dataDest = Join-Path $exeDir "data"
     if (-not (Test-Path $dataDest)) {
         Write-Host "data/ directory missing from exe dir - attempting to stage it..."
-        # Search the build tree (respecting SearchRoot) for data/ dir containing flutter_assets
+        # Search the build tree for data/ dir containing flutter_assets, preferring Release paths.
         $dataFound = Get-ChildItem $searchFrom -Recurse -Directory -Filter "data" -ErrorAction SilentlyContinue |
             Where-Object { Test-Path (Join-Path $_.FullName "flutter_assets") } |
+            Sort-Object { if ($_.FullName -match '\\Release\\') { 0 } elseif ($_.FullName -match 'Release') { 1 } else { 2 } } |
             Select-Object -First 1
         if ($dataFound) {
             New-Item -ItemType Directory -Force -Path $dataDest | Out-Null
             Copy-Item "$($dataFound.FullName)\*" -Destination $dataDest -Recurse -Force
             Write-Host "Staged data/ from: $($dataFound.FullName)"
         } else {
-            # Fallback: search for flutter_assets directory directly under searchFrom
+            # Fallback: search for flutter_assets directory directly, preferring Release paths.
             $assetsFound = Get-ChildItem $searchFrom -Recurse -Directory -Filter "flutter_assets" -ErrorAction SilentlyContinue |
+                Sort-Object { if ($_.FullName -match '\\Release\\') { 0 } elseif ($_.FullName -match 'Release') { 1 } else { 2 } } |
                 Select-Object -First 1
             if ($assetsFound) {
                 $dataAssetsDest = Join-Path $dataDest "flutter_assets"
