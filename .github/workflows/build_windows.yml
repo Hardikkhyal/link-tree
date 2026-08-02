@@ -133,115 +133,116 @@ jobs:
           if (-not (Test-Path $iconPath)) {
             Write-Host "Creating missing app_icon.ico fallback resource..."
             New-Item -ItemType Directory -Force -Path "windows/runner/resources" | Out-Null
-            [System.IO.File]::WriteAllBytes($iconPath, [System.Convert]::FromBase64String('AAABAAEAICAQAAAAAADoAgAAFgAAACgAAAAgAAAAQAAAAAEABAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAEBAQAEBAMABgYABgYEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA'))
+            [System.IO.File]::WriteAllBytes($iconPath, [System.Convert]::FromBase64String('AAABAAEAICAQAAAAAADoAgAAFgAAACgAAAAgAAAAQAAAAAEABAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAEBAQAEBAMABgYABgYEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA////wAAAAAAAP///AAAAAAAA'))
           }
 
       - name: Build Windows Executable (Release)
         run: flutter build windows --release --verbose
 
-      # Note: Dynamic release-directory discovery via scripts/ci/find_windows_release_dir.ps1
-      # is required because Flutter and CMake output directory structures vary depending on
-      # Flutter SDK version, CMake generator settings, and toolchain configurations
-      # (e.g. build/windows/x64/runner/Release vs build/windows/x64/runner/runner/Release vs build/windows/x64/Release).
-      - name: Stage Complete Windows Release Bundle
+      # ── Assemble the release bundle ─────────────────────────────────────────
+      # flutter build windows places the exe in build/windows/x64/runner/Release
+      # but flutter_windows.dll and data/ may be written to different locations
+      # depending on Flutter SDK version and CMake config. The helper script
+      # performs recursive search + automatic staging into a single output dir.
+      - name: Discover & Stage Release Bundle
+        id: discover
         shell: pwsh
         run: |
-          if (Test-Path "build/windows/x64") {
-            Write-Host "Staging release assets via cmake --install..."
-            try {
-              cmake --install build/windows/x64 --config Release
-            } catch {
-              Write-Host "WARNING: cmake --install failed! Inspecting CMake logs..."
-              if (Test-Path "build/windows/x64/CMakeCache.txt") {
-                Get-Content "build/windows/x64/CMakeCache.txt" -Head 50
-              }
-              Write-Error "cmake --install step failed: $_"
-              exit 1
-            }
-          } else {
-            Write-Host "build/windows/x64 directory does not exist, skipping explicit cmake --install."
-          }
-
-      - name: Validate Build Output Exists & Discover Release Directory
-        shell: pwsh
-        run: |
-          # Test reusable helper self-check first
+          # Run self-check first to validate the helper itself is working
           pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SelfCheck
-
-          Write-Host "=== Diagnostic Inspection of Candidate Directories ==="
-          $diagDirs = @("build/windows/x64/runner/Release", "build/windows/x64/runner", "build/windows/x64")
-          foreach ($d in $diagDirs) {
-            $hasDll  = Test-Path (Join-Path $d "flutter_windows.dll")
-            $hasData = (Test-Path (Join-Path $d "data")) -or (Test-Path (Join-Path $d "data/flutter_assets"))
-            $hasExe  = (Test-Path (Join-Path $d "hk_drop.exe")) -or (Test-Path (Join-Path $d "runner.exe"))
-            Write-Host "Candidate: $d -> ExeExists: $hasExe | DllExists: $hasDll | DataExists: $hasData"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Helper script self-check failed. Aborting."
+            exit 1
           }
 
-          Write-Host "`n=== Candidate .exe files under build/windows/x64 ==="
-          if (Test-Path "build/windows/x64") {
-            Get-ChildItem "build/windows/x64" -Recurse -Filter *.exe | Select-Object FullName
-          }
-
-          Write-Host "`nDiscovering release directory..."
-          $releaseDir = $null
-          if (Test-Path "build/windows/x64/runner/Release") {
-            Write-Host "Searching primary candidate: build/windows/x64/runner/Release..."
-            $releaseDir = pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SearchRoot "build/windows/x64/runner/Release" -ExeNames "hk_drop.exe","runner.exe"
-          }
-
-          if (-not $releaseDir -or $LASTEXITCODE -ne 0) {
-            Write-Host "Searching fallback candidate: build/windows/x64..."
-            $releaseDir = pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SearchRoot "build/windows/x64" -ExeNames "hk_drop.exe","runner.exe"
-          }
+          # Discover & stage the release bundle
+          Write-Host "=== Discovering release bundle ==="
+          $releaseDir = pwsh -ExecutionPolicy Bypass `
+            -File "scripts/ci/find_windows_release_dir.ps1" `
+            -SearchRoot "build/windows/x64" `
+            -ExeNames "hk_drop.exe","runner.exe"
           $exitCode = $LASTEXITCODE
 
-          if ($exitCode -ne 0 -or -not $releaseDir) {
-            Write-Host "CRITICAL: Failed to locate valid release directory! Printing diagnostic directory tree..."
-            Write-Host "`n=== Recursive directory tree of build/windows ==="
+          if ($exitCode -ne 0 -or -not $releaseDir -or -not (Test-Path $releaseDir)) {
+            Write-Host ""
+            Write-Host "=== PACKAGING FAILURE ==="
+            Write-Host "Could not assemble a complete Windows release bundle."
+            Write-Host "flutter build output tree:"
             if (Test-Path "build/windows") {
-              Get-ChildItem "build/windows" -Recurse | Select-Object FullName
+              Get-ChildItem "build/windows" -Recurse |
+                Select-Object -First 200 FullName
             } else {
-              Write-Host "build/windows directory does not exist!"
-            }
-
-            Write-Host "`n=== CMake install tree under build/windows/x64/runner ==="
-            if (Test-Path "build/windows/x64/runner") {
-              Get-ChildItem "build/windows/x64/runner" -Recurse | Select-Object FullName
-            } else {
-              Write-Host "build/windows/x64/runner directory does not exist!"
+              Write-Host "build/windows does not exist!"
             }
             exit 1
           }
 
-          Write-Host "Discovered valid release directory: $releaseDir"
+          Write-Host "Release bundle ready at: $releaseDir"
           Add-Content -Path $env:GITHUB_ENV -Value "RELEASE_DIR=$releaseDir"
-          
-          Write-Host "Verified release directory contents:"
-          Get-ChildItem -Path $releaseDir
+
+      - name: Verify Release Bundle Contents
+        shell: pwsh
+        run: |
+          $releaseDir = $env:RELEASE_DIR
+          if (-not $releaseDir -or -not (Test-Path $releaseDir)) {
+            Write-Error "RELEASE_DIR is missing or invalid."
+            exit 1
+          }
+
+          Write-Host "=== Release bundle contents: $releaseDir ==="
+          Get-ChildItem -Path $releaseDir -Recurse |
+            Select-Object @{N='RelPath';E={$_.FullName.Replace($releaseDir,'').TrimStart('\')}} , Length |
+            Format-Table -AutoSize
+
+          # Hard validate required files
+          $requiredInBundle = @("flutter_windows.dll")
+          $missingFiles = @()
+          foreach ($f in $requiredInBundle) {
+            if (-not (Test-Path (Join-Path $releaseDir $f))) {
+              $missingFiles += $f
+            }
+          }
+
+          $hasExe = (Test-Path (Join-Path $releaseDir "hk_drop.exe")) -or (Test-Path (Join-Path $releaseDir "runner.exe"))
+          if (-not $hasExe) { $missingFiles += "hk_drop.exe or runner.exe" }
+
+          $hasData = (Test-Path (Join-Path $releaseDir "data")) -or (Test-Path (Join-Path $releaseDir "data/flutter_assets"))
+          if (-not $hasData) { $missingFiles += "data/" }
+
+          if ($missingFiles.Count -gt 0) {
+            Write-Error "Bundle is incomplete. Missing: $($missingFiles -join ', ')"
+            exit 1
+          }
+
+          Write-Host "Bundle validation PASSED."
 
       - name: Compress Windows Build Folder
         shell: pwsh
         run: |
           $releaseDir = $env:RELEASE_DIR
           if (-not $releaseDir -or -not (Test-Path $releaseDir)) {
-            Write-Host "RELEASE_DIR env var missing or invalid. Invoking helper discovery fallback..."
-            $releaseDir = pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SearchRoot "build/windows/x64" -ExeNames "hk_drop.exe","runner.exe"
-          }
-
-          if (-not $releaseDir -or -not (Test-Path $releaseDir)) {
-            Write-Error "CRITICAL: Cannot compress - valid release directory not found."
+            Write-Error "RELEASE_DIR is missing or path does not exist. Cannot compress."
             exit 1
           }
 
           $zipPath = "build/hk-drop-windows-x64.zip"
-          Write-Host "Compressing release bundle from $releaseDir into $zipPath..."
+          Write-Host "Compressing: $releaseDir -> $zipPath"
+
+          # Use Get-ChildItem pipeline to ensure subdirectories are included
           Get-ChildItem -Path $releaseDir | Compress-Archive -DestinationPath $zipPath -Force
-          
+
           if (-not (Test-Path $zipPath)) {
-            Write-Error "CRITICAL: Zip creation failed! $zipPath was not generated."
+            Write-Error "Zip file was not created at $zipPath"
             exit 1
           }
-          Write-Host "Successfully compressed release bundle to $zipPath (Size: $((Get-Item $zipPath).Length) bytes)"
+
+          $zipSize = (Get-Item $zipPath).Length
+          if ($zipSize -lt 1024) {
+            Write-Error "Zip file is suspiciously small ($zipSize bytes). Aborting."
+            exit 1
+          }
+
+          Write-Host "Artifact ready: $zipPath ($zipSize bytes)"
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4

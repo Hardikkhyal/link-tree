@@ -1,269 +1,207 @@
 [CmdletBinding()]
 param (
-    [string]$SearchRoot = "build/windows/x64",
-    [string[]]$ExeNames = @("hk_drop.exe", "runner.exe"),
+    [string]$SearchRoot    = "build/windows/x64",
+    [string[]]$ExeNames    = @("hk_drop.exe", "runner.exe"),
     [switch]$SelfCheck
 )
 
-# Helper function to check/stage runtime assets in candidate dir or parent dir
-function Test-HasRuntimeAssets ($dirPath) {
-    $dllDirect  = Test-Path (Join-Path $dirPath "flutter_windows.dll")
-    $dataDirect = (Test-Path (Join-Path $dirPath "data/flutter_assets")) -or (Test-Path (Join-Path $dirPath "data"))
-
-    if ($dllDirect -and $dataDirect) {
-        return $true
-    }
-
-    # Check parent directory (for nested runner layouts e.g. runner/Release)
-    $parentPath = Split-Path $dirPath -Parent
-    if ($parentPath -and (Test-Path $parentPath)) {
-        $dllParent  = Test-Path (Join-Path $parentPath "flutter_windows.dll")
-        $dataParent = (Test-Path (Join-Path $parentPath "data/flutter_assets")) -or (Test-Path (Join-Path $parentPath "data"))
-
-        if (($dllDirect -or $dllParent) -and ($dataDirect -or $dataParent)) {
-            if (-not $dllDirect -and $dllParent) {
-                Copy-Item (Join-Path $parentPath "flutter_windows.dll") -Destination $dirPath -Force
-                Write-Host "Auto-staged flutter_windows.dll from parent directory ($parentPath) to $dirPath"
-            }
-            if (-not $dataDirect -and $dataParent) {
-                $parentData = Join-Path $parentPath "data"
-                $childData  = Join-Path $dirPath "data"
-                New-Item -ItemType Directory -Force -Path $childData | Out-Null
-                Copy-Item "$parentData\*" -Destination $childData -Recurse -Force
-                Write-Host "Auto-staged data/ directory from parent directory ($parentPath) to $dirPath"
-            }
-            return $true
-        }
-    }
-    return $false
+# Helper: check if a directory is a complete runnable bundle
+function Test-IsCompleteBundle {
+    param([string]$dir)
+    $hasExe  = ($ExeNames | Where-Object { Test-Path (Join-Path $dir $_) }).Count -gt 0
+    $hasDll  = Test-Path (Join-Path $dir "flutter_windows.dll")
+    $hasData = (Test-Path (Join-Path $dir "data")) -or (Test-Path (Join-Path $dir "data/flutter_assets"))
+    return ($hasExe -and $hasDll -and $hasData)
 }
 
+# Helper: print audit of what is missing in a dir
+function Write-DirAudit {
+    param([string]$dir)
+    $exeHits = ($ExeNames | Where-Object { Test-Path (Join-Path $dir $_) }) -join ", "
+    $hasDll  = Test-Path (Join-Path $dir "flutter_windows.dll")
+    $hasData = (Test-Path (Join-Path $dir "data")) -or (Test-Path (Join-Path $dir "data/flutter_assets"))
+    Write-Host "  Audit: $dir"
+    Write-Host "    Exe  : $(if ($exeHits) { $exeHits } else { 'MISSING' })"
+    Write-Host "    DLL  : $(if ($hasDll)  { 'OK' } else { 'MISSING' })"
+    Write-Host "    data : $(if ($hasData) { 'OK' } else { 'MISSING' })"
+}
+
+# SelfCheck mode
 if ($SelfCheck) {
     Write-Host "Running helper self-check test..."
-    $testDir = Join-Path $env:TEMP "test_find_release_dir_$(Get-Random)"
-    $parentDir = Join-Path $testDir "runner"
-    $subDir  = Join-Path $parentDir "Release"
-    New-Item -ItemType Directory -Force -Path $subDir | Out-Null
-    Set-Content -Path (Join-Path $subDir "hk_drop.exe") -Value "dummy"
+    $testDir    = Join-Path $env:TEMP "find_release_selfcheck_$(Get-Random)"
+    $releaseDir = Join-Path $testDir "runner/Release"
+    $dataDir    = Join-Path $releaseDir "data/flutter_assets"
+    New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+    Set-Content -Path (Join-Path $releaseDir "hk_drop.exe")          -Value "dummy"
+    Set-Content -Path (Join-Path $releaseDir "flutter_windows.dll")  -Value "dummy"
+    Set-Content -Path (Join-Path $dataDir    "AssetManifest.json")   -Value "{}"
 
-    # Put assets in parent directory to test parent-layout staging
-    $parentData = Join-Path $parentDir "data/flutter_assets"
-    New-Item -ItemType Directory -Force -Path $parentData | Out-Null
-    Set-Content -Path (Join-Path $parentDir "flutter_windows.dll") -Value "dummy"
-
-    $found = Get-ChildItem -Path $testDir -Recurse -Directory -ErrorAction SilentlyContinue | Where-Object {
-        $dir = $_.FullName
-        $exeExists = $false
-        foreach ($exe in $ExeNames) {
-            if (Test-Path (Join-Path $dir $exe)) {
-                $exeExists = $true
-                break
-            }
-        }
-        $exeExists -and (Test-HasRuntimeAssets $dir)
-    } | Select-Object -First 1
-
+    $result = Test-IsCompleteBundle $releaseDir
     Remove-Item -Recurse -Force $testDir -ErrorAction SilentlyContinue
 
-    if ($found) {
+    if ($result) {
         Write-Host "Self-check PASSED."
         exit 0
     } else {
-        Write-Error "Self-check FAILED."
+        Write-Error "Self-check FAILED - complete bundle not detected."
         exit 1
     }
 }
 
-# Ensure search root fallback
-if (-not (Test-Path $SearchRoot)) {
-    if (Test-Path "build/windows/x64") {
-        $SearchRoot = "build/windows/x64"
-    } elseif (Test-Path "build/windows") {
-        $SearchRoot = "build/windows"
-    } elseif (Test-Path "build") {
-        $SearchRoot = "build"
-    } else {
-        Write-Error "Search root directory does not exist: $SearchRoot"
-        exit 1
-    }
+# Resolve Flutter SDK engine cache directories
+$sdkEngineDirs = @()
+if ($env:FLUTTER_ROOT) {
+    $sdkEngineDirs += Join-Path $env:FLUTTER_ROOT "bin/cache/artifacts/engine/windows-x64"
+}
+$flutterCmd = Get-Command flutter -ErrorAction SilentlyContinue
+if ($flutterCmd) {
+    $flutterSdkRoot = Split-Path (Split-Path $flutterCmd.Source -Parent) -Parent
+    $sdkEngineDirs += Join-Path $flutterSdkRoot "bin/cache/artifacts/engine/windows-x64"
 }
 
-# Recursively find all directories under SearchRoot
-$allDirs = @($SearchRoot)
-$childDirs = Get-ChildItem -Path $SearchRoot -Recurse -Directory -ErrorAction SilentlyContinue
-if ($childDirs) {
-    $allDirs += ($childDirs | ForEach-Object { $_.FullName })
+# Resolve search root with fallbacks
+$searchFrom = "build"
+if (Test-Path $SearchRoot)             { $searchFrom = $SearchRoot }
+elseif (Test-Path "build/windows/x64") { $searchFrom = "build/windows/x64" }
+elseif (Test-Path "build/windows")     { $searchFrom = "build/windows" }
+
+# Build list of all directories to scan
+$candidateDirs = @()
+if (Test-Path $searchFrom) {
+    $candidateDirs += $searchFrom
+    $subDirs = Get-ChildItem $searchFrom -Recurse -Directory -ErrorAction SilentlyContinue
+    if ($subDirs) { $candidateDirs += $subDirs.FullName }
 }
 
-# 1. First Pass: Look for candidate directory with executable & runtime assets in dir or parent
+Write-Host "=== Phase 1: Scanning $($candidateDirs.Count) candidate directories for complete bundle ==="
 $validDir = $null
 
-foreach ($dir in $allDirs) {
-    $exeFound = $false
-    foreach ($exe in $ExeNames) {
-        if (Test-Path (Join-Path $dir $exe)) {
-            $exeFound = $true
-            break
-        }
-    }
-
-    if ($exeFound -and (Test-HasRuntimeAssets $dir)) {
+foreach ($dir in $candidateDirs) {
+    if (Test-IsCompleteBundle $dir) {
+        Write-Host "FOUND complete bundle at: $dir"
         $validDir = $dir
-        if ($dir -match "Release") {
-            break
-        }
+        if ($dir -match "Release") { break }
     }
 }
 
-# 2. Second Pass: Find directory with executable, and auto-stage missing dll/data from global build/SDK caches
+# Phase 2: find the exe dir and stage missing assets alongside it
 if (-not $validDir) {
-    $sdkCacheDirs = @()
-    if ($env:FLUTTER_ROOT) {
-        $sdkCacheDirs += Join-Path $env:FLUTTER_ROOT "bin/cache/artifacts/engine/windows-x64"
-    }
-    $flutterCmd = Get-Command flutter -ErrorAction SilentlyContinue
-    if ($flutterCmd) {
-        $flutterBin = Split-Path $flutterCmd.Source -Parent
-        $flutterSdk = Split-Path $flutterBin -Parent
-        $sdkCacheDirs += Join-Path $flutterSdk "bin/cache/artifacts/engine/windows-x64"
-    }
+    Write-Host "=== Phase 2: No complete bundle found. Attempting to stage assets ==="
 
-    foreach ($dir in $allDirs) {
-        $exeFound = $false
+    # Find where the exe lives
+    $exeDir = $null
+    foreach ($dir in $candidateDirs) {
         foreach ($exe in $ExeNames) {
             if (Test-Path (Join-Path $dir $exe)) {
-                $exeFound = $true
+                $exeDir = $dir
+                Write-Host "Found exe in: $dir"
                 break
             }
         }
-        if ($exeFound) {
-            Write-Host "Found executable target in directory: $dir. Staging missing bundle dependencies..."
+        if ($exeDir) { break }
+    }
 
-            # Stage flutter_windows.dll if missing
-            $dllPath = Join-Path $dir "flutter_windows.dll"
-            if (-not (Test-Path $dllPath)) {
-                $dllSources = @(
-                    "build/windows/x64/runner/flutter_windows.dll",
-                    "build/windows/x64/runner/Release/flutter_windows.dll",
-                    "windows/flutter/ephemeral/flutter_windows.dll",
-                    "build/windows/x64/flutter/flutter_windows.dll",
-                    "build/windows/flutter/flutter_windows.dll",
-                    "build/windows/x64/flutter/ephemeral/flutter_windows.dll"
-                )
-                foreach ($sdkCache in $sdkCacheDirs) {
-                    $dllSources += Join-Path $sdkCache "flutter_windows.dll"
-                }
+    if (-not $exeDir) {
+        Write-Host "ERROR (Build failure): No exe found at all under '$searchFrom'."
+        Write-Host "This means flutter build windows failed or the exe was not written."
+        Write-Host ""
+        Write-Host "=== Full recursive listing under build/ ==="
+        if (Test-Path "build") {
+            Get-ChildItem "build" -Recurse | Select-Object FullName
+        }
+        exit 1
+    }
 
-                foreach ($src in $dllSources) {
-                    if (Test-Path $src) {
-                        Copy-Item $src -Destination $dir -Force
-                        Write-Host "Auto-staged flutter_windows.dll from $src to $dir"
-                        break
-                    }
-                }
-            }
+    # Stage flutter_windows.dll if missing
+    $dllDest = Join-Path $exeDir "flutter_windows.dll"
+    if (-not (Test-Path $dllDest)) {
+        Write-Host "flutter_windows.dll missing from exe dir - attempting to stage it..."
+        $dllCandidates = @("windows/flutter/ephemeral/flutter_windows.dll")
+        foreach ($sdkEngDir in $sdkEngineDirs) {
+            $dllCandidates += Join-Path $sdkEngDir "flutter_windows.dll"
+        }
+        # Search the whole build tree for flutter_windows.dll
+        $found = Get-ChildItem "build" -Recurse -Filter "flutter_windows.dll" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($found) {
+            $dllCandidates = @($found.FullName) + $dllCandidates
+        }
 
-            # Stage data/ directory & assets if missing or incomplete
-            $dataPath = Join-Path $dir "data"
-            $dataAssetsPath = Join-Path $dataPath "flutter_assets"
-
-            if (-not (Test-HasRuntimeAssets $dir)) {
-                $dataDirSources = @(
-                    "build/windows/x64/runner/data",
-                    "build/windows/x64/runner/Release/data",
-                    "build/windows/x64/Release/data",
-                    "build/windows/runner/Release/data"
-                )
-                $stagedData = $false
-                foreach ($srcData in $dataDirSources) {
-                    if ((Test-Path $srcData) -and ($srcData -ne $dataPath)) {
-                        New-Item -ItemType Directory -Force -Path $dataPath | Out-Null
-                        Copy-Item "$srcData\*" -Destination $dataPath -Recurse -Force
-                        Write-Host "Auto-staged full data/ directory from $srcData to $dataPath"
-                        $stagedData = $true
-                        break
-                    }
-                }
-
-                if (-not $stagedData) {
-                    $assetSources = @(
-                        "build/windows/x64/runner/data/flutter_assets",
-                        "build/windows/x64/runner/Release/data/flutter_assets",
-                        "build/windows/x64/runner/Release/flutter_assets",
-                        "build/windows/x64/data/flutter_assets",
-                        "build/flutter_assets",
-                        "build/windows/flutter_assets",
-                        "build/windows/x64/flutter_assets"
-                    )
-                    foreach ($src in $assetSources) {
-                        if (Test-Path $src) {
-                            New-Item -ItemType Directory -Force -Path $dataAssetsPath | Out-Null
-                            Copy-Item "$src\*" -Destination $dataAssetsPath -Recurse -Force
-                            Write-Host "Auto-staged flutter_assets from $src to $dataAssetsPath"
-                            break
-                        }
-                    }
-
-                    $icuPath = Join-Path $dataPath "icudtl.dat"
-                    if (-not (Test-Path $icuPath)) {
-                        $icuSources = @(
-                            "windows/flutter/ephemeral/icudtl.dat",
-                            "build/windows/x64/flutter/icudtl.dat",
-                            "build/windows/x64/runner/icudtl.dat",
-                            "build/windows/x64/runner/data/icudtl.dat",
-                            "build/windows/x64/runner/Release/data/icudtl.dat",
-                            "build/windows/x64/runner/Release/icudtl.dat"
-                        )
-                        foreach ($sdkCache in $sdkCacheDirs) {
-                            $icuSources += Join-Path $sdkCache "icudtl.dat"
-                        }
-
-                        foreach ($src in $icuSources) {
-                            if (Test-Path $src) {
-                                New-Item -ItemType Directory -Force -Path $dataPath | Out-Null
-                                Copy-Item $src -Destination $dataPath -Force
-                                Write-Host "Auto-staged icudtl.dat from $src to $dataPath"
-                                break
-                            }
-                        }
-                    }
-                }
-            }
-
-            # Copy any compiled plugin DLLs if found in build directories
-            $pluginDlls = Get-ChildItem -Path "build" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne "flutter_windows.dll" }
-            if ($pluginDlls) {
-                foreach ($pDll in $pluginDlls) {
-                    $destDll = Join-Path $dir $pDll.Name
-                    if (-not (Test-Path $destDll)) {
-                        Copy-Item $pDll.FullName -Destination $dir -Force
-                        Write-Host "Auto-staged plugin library $($pDll.Name) to $dir"
-                    }
-                }
-            }
-
-            # Re-verify directory completeness
-            if (Test-HasRuntimeAssets $dir) {
-                $validDir = $dir
+        $staged = $false
+        foreach ($src in $dllCandidates) {
+            if ((Test-Path $src) -and ($src -ne $dllDest)) {
+                Copy-Item $src -Destination $dllDest -Force
+                Write-Host "Staged flutter_windows.dll from: $src"
+                $staged = $true
                 break
             }
         }
+        if (-not $staged) {
+            Write-Host "WARNING: Could not find flutter_windows.dll to stage."
+        }
+    }
+
+    # Stage data/ (flutter assets) if missing
+    $dataDest = Join-Path $exeDir "data"
+    if (-not (Test-Path $dataDest)) {
+        Write-Host "data/ directory missing from exe dir - attempting to stage it..."
+        # Search the whole build tree for data/ dir containing flutter_assets
+        $dataFound = Get-ChildItem "build" -Recurse -Directory -Filter "data" -ErrorAction SilentlyContinue |
+            Where-Object { Test-Path (Join-Path $_.FullName "flutter_assets") } |
+            Select-Object -First 1
+        if ($dataFound) {
+            New-Item -ItemType Directory -Force -Path $dataDest | Out-Null
+            Copy-Item "$($dataFound.FullName)\*" -Destination $dataDest -Recurse -Force
+            Write-Host "Staged data/ from: $($dataFound.FullName)"
+        } else {
+            # Fallback: search for flutter_assets directory directly
+            $assetsFound = Get-ChildItem "build" -Recurse -Directory -Filter "flutter_assets" -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            if ($assetsFound) {
+                $dataAssetsDest = Join-Path $dataDest "flutter_assets"
+                New-Item -ItemType Directory -Force -Path $dataAssetsDest | Out-Null
+                Copy-Item "$($assetsFound.FullName)\*" -Destination $dataAssetsDest -Recurse -Force
+                Write-Host "Staged flutter_assets from: $($assetsFound.FullName)"
+            } else {
+                Write-Host "WARNING: Could not find data/ or flutter_assets to stage."
+            }
+        }
+    }
+
+    # Stage any plugin DLLs found in the build tree
+    $pluginDlls = Get-ChildItem "build" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne "flutter_windows.dll" -and $_.FullName -notmatch "\\x64\\flutter\\" }
+    foreach ($dll in $pluginDlls) {
+        $dest = Join-Path $exeDir $dll.Name
+        if (-not (Test-Path $dest)) {
+            Copy-Item $dll.FullName -Destination $dest -Force
+            Write-Host "Staged plugin DLL: $($dll.Name)"
+        }
+    }
+
+    if (Test-IsCompleteBundle $exeDir) {
+        $validDir = $exeDir
+        Write-Host "Phase 2 SUCCESS: staged complete bundle at $exeDir"
+    } else {
+        Write-Host ""
+        Write-Host "ERROR (Packaging failure): Could not assemble complete bundle."
+        Write-Host "All candidate directories:"
+        foreach ($dir in $candidateDirs) { Write-DirAudit $dir }
+        Write-Host ""
+        Write-Host "=== Recursive listing: build/windows/x64 ==="
+        if (Test-Path "build/windows/x64") {
+            Get-ChildItem "build/windows/x64" -Recurse | Select-Object FullName
+        }
+        Write-Error "Packaging failure: missing flutter_windows.dll or data/ - see diagnostics above."
+        exit 1
     }
 }
 
-if ($validDir) {
-    $resolvedPath = (Resolve-Path $validDir).Path
-    Write-Output $resolvedPath
-    exit 0
-} else {
-    Write-Host "=== Diagnostic Log: Directories inspected under $SearchRoot ==="
-    foreach ($dir in $allDirs) {
-        $exes = ($ExeNames | Where-Object { Test-Path (Join-Path $dir $_) }) -join ", "
-        $hasDll  = Test-Path (Join-Path $dir "flutter_windows.dll")
-        # Uses Test-HasRuntimeAssets to check asset presence and avoid function name mismatch CI errors
-        $hasData = Test-HasRuntimeAssets $dir
-        Write-Host "Dir: $dir | Exes: [$exes] | DLL: $hasDll | Data: $hasData"
-    }
-    Write-Error "Could not locate a valid release directory containing ($($ExeNames -join ' | ')), flutter_windows.dll, and data/ under $SearchRoot"
-    exit 1
-}
+# Output resolved path
+$resolvedPath = (Resolve-Path $validDir).Path
+Write-Host "=== Release bundle ready at: $resolvedPath ==="
+Write-Host "Contents:"
+Get-ChildItem $resolvedPath | Select-Object Name, Length
+Write-Output $resolvedPath
+exit 0
