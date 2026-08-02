@@ -173,8 +173,17 @@ jobs:
             Get-ChildItem "build/windows/x64" -Recurse -Filter *.exe | Select-Object FullName
           }
 
-          Write-Host "Discovering release directory under build/windows/x64..."
-          $releaseDir = pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SearchRoot "build/windows/x64" -ExeNames "link_tree.exe","hk_drop.exe","runner.exe"
+          Write-Host "Discovering release directory..."
+          $releaseDir = $null
+          if (Test-Path "build/windows/x64/runner/Release") {
+            Write-Host "Searching primary candidate: build/windows/x64/runner/Release..."
+            $releaseDir = pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SearchRoot "build/windows/x64/runner/Release" -ExeNames "link_tree.exe","hk_drop.exe","runner.exe"
+          }
+
+          if (-not $releaseDir -or $LASTEXITCODE -ne 0) {
+            Write-Host "Searching fallback candidate: build/windows/x64..."
+            $releaseDir = pwsh -ExecutionPolicy Bypass -File "scripts/ci/find_windows_release_dir.ps1" -SearchRoot "build/windows/x64" -ExeNames "link_tree.exe","hk_drop.exe","runner.exe"
+          }
           $exitCode = $LASTEXITCODE
 
           if ($exitCode -ne 0 -or -not $releaseDir) {
