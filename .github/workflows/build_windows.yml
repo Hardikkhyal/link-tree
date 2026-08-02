@@ -155,18 +155,29 @@ jobs:
             exit 1
           }
 
-          # Discover & stage the release bundle
-          Write-Host "=== Discovering release bundle ==="
-          $releaseDir = pwsh -ExecutionPolicy Bypass `
+          # Use -OutputFile to receive the resolved path via file instead of stdout capture.
+          # This avoids all stdout pollution issues from Write-Host in child pwsh processes,
+          # which on Windows runners can bleed into stdout capture ($var = pwsh ...).
+          $outFile = [System.IO.Path]::GetTempFileName()
+          pwsh -ExecutionPolicy Bypass `
             -File "scripts/ci/find_windows_release_dir.ps1" `
             -SearchRoot "build/windows/x64" `
-            -ExeNames "hk_drop.exe","runner.exe"
+            -ExeNames "hk_drop.exe","runner.exe" `
+            -OutputFile $outFile
           $exitCode = $LASTEXITCODE
+
+          $releaseDir = ""
+          if (Test-Path $outFile) {
+            $releaseDir = (Get-Content $outFile -Raw).Trim()
+            Remove-Item $outFile -Force -ErrorAction SilentlyContinue
+          }
 
           if ($exitCode -ne 0 -or -not $releaseDir -or -not (Test-Path $releaseDir)) {
             Write-Host ""
             Write-Host "=== PACKAGING FAILURE ==="
             Write-Host "Could not assemble a complete Windows release bundle."
+            Write-Host "Exit code: $exitCode"
+            Write-Host "Resolved path: '$releaseDir'"
             Write-Host "flutter build output tree:"
             if (Test-Path "build/windows") {
               Get-ChildItem "build/windows" -Recurse |
@@ -179,6 +190,7 @@ jobs:
 
           Write-Host "Release bundle ready at: $releaseDir"
           Add-Content -Path $env:GITHUB_ENV -Value "RELEASE_DIR=$releaseDir"
+
 
       - name: Verify Release Bundle Contents
         shell: pwsh

@@ -2,6 +2,7 @@
 param (
     [string]$SearchRoot    = "build/windows/x64",
     [string[]]$ExeNames    = @("hk_drop.exe", "runner.exe"),
+    [string]$OutputFile    = "",   # If set, resolved path is written to this file (avoids stdout capture issues)
     [switch]$SelfCheck
 )
 
@@ -205,6 +206,15 @@ if (-not $validDir) {
 $resolvedPath = (Resolve-Path $validDir).Path
 Write-Host "=== Release bundle ready at: $resolvedPath ==="
 Write-Host "Contents:"
-Get-ChildItem $resolvedPath | Select-Object Name, Length
-Write-Output $resolvedPath
+Get-ChildItem $resolvedPath | ForEach-Object { Write-Host "  $($_.Name)" }
+
+# Write the path to OutputFile when specified - avoids stdout capture pollution entirely.
+# When -OutputFile is not set, emit one line to stdout for backward compatibility.
+if ($OutputFile -ne "") {
+    Set-Content -Path $OutputFile -Value $resolvedPath -Encoding UTF8 -NoNewline
+    Write-Host "Path written to: $OutputFile"
+} else {
+    # Emit ONLY the path on stdout (no other Write-Output calls anywhere above)
+    [Console]::Out.WriteLine($resolvedPath)
+}
 exit 0
